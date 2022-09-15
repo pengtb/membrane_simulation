@@ -34,6 +34,16 @@ def initialize_shape_positions(N, init_shape, **kwargs):
 def polygon_area(x, y):
     return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
 
+# neighborhood matrix
+def neighborhood_matrix(N, num_neighbor):
+    agent_neighborhood = jnp.zeros((N, N), dtype=bool)
+    for idx in range(1, num_neighbor+1):
+        agent_neighborhood |= jnp.eye(N, k=idx, dtype=bool)
+        agent_neighborhood |= jnp.eye(N, k=-idx, dtype=bool)
+        agent_neighborhood |= jnp.eye(N, k=N-idx, dtype=bool)
+        agent_neighborhood |= jnp.eye(N, k=idx-N, dtype=bool)
+    return agent_neighborhood
+
 class Membrane(mesa.Model):
     def __init__(self, N, lipid=Lipid_allinter, **kwargs):
         # initialize model constants
@@ -174,7 +184,7 @@ class Membrane_jax(mesa.Model):
         # forces constants
         self.k1 = kwargs.get('k1', None)
         self.k2 = kwargs.get('k2', None)
-        self.k3 = kwargs.get('k3', None)
+        self.k = kwargs.get('k', None)
         self.epsilon = kwargs.get('epsilon', None)
         self.power = kwargs.get('power', 1)
         # time step
@@ -199,12 +209,7 @@ class Membrane_jax(mesa.Model):
         self.all_neighbor = kwargs.get('all_neighbor', False)
         self.num_neighbor = kwargs.get('num_neighbor', 1)
         if not self.all_neighbor:
-            self.agent_neighborhood = jnp.zeros((N, N), dtype=bool)
-            for idx in range(1, self.num_neighbor+1):
-                self.agent_neighborhood |= jnp.eye(N, k=idx, dtype=bool)
-                self.agent_neighborhood |= jnp.eye(N, k=-idx, dtype=bool)
-                self.agent_neighborhood |= jnp.eye(N, k=N-idx, dtype=bool)
-                self.agent_neighborhood |= jnp.eye(N, k=idx-N, dtype=bool)
+            self.agent_neighborhood = neighborhood_matrix(N, self.num_neighbor)
         else:
             self.agent_neighborhood = jnp.ones((N, N), dtype=bool) ^ jnp.eye(N, k=0, dtype=bool)
         self.distance_matrix = DistanceMatrix(self.agent_positions)
@@ -220,6 +225,11 @@ class Membrane_jax(mesa.Model):
 
         # if model is simple
         self.simple = kwargs.get('simple', True)
+
+        # model as a string
+        self.string = kwargs.get('string', False)
+        if self.string:
+            self.string_neighborhood = neighborhood_matrix(N, 1)
         
     def init_status(self, **kwargs):
         # status output options
@@ -286,7 +296,7 @@ class Membrane_jax(mesa.Model):
             self.velocities = self.velocities * v_size_cliped[:, None] / v_size[:]
         vmin = kwargs.get('vmin', None)
         if vmin is not None:
-            self.velocities = LowestVelocity(self.velocities, vmin)
+            self.velocities = ZeroLowestVelocity(self.velocities, vmin)
             
         # run a step
         # update neighborhood
@@ -360,16 +370,27 @@ class Membrane_jax(mesa.Model):
         neighbors = self.agent_neighborhood[:, :, None].astype(jnp.float64)
         other_forces = jnp.zeros((self.N, 2), dtype=jnp.float64)
         distance_matrixs = self.distance_matrix[:,:,None]
+
+        # string neighbors
+        if not self.string:
+            string_neighbors = neighbors
+        else:
+            string_neighbors = self.string_neighborhood[:, :, None].astype(jnp.float64)
+        
+        # string force
         if self.k1 is not None:
             # attractive force
-            attr_force = AttractiveForce(relative_positions, neighbors, distance_matrixs, k=self.k1, r0=self.r0, power=self.power).sum(axis=0)
+            attr_force = AttractiveForce(relative_positions, string_neighbors, distance_matrixs, k=self.k1, r0=self.r0, power=self.power).sum(axis=0)
             other_forces += attr_force
         if self.k2 is not None:
             # repulsive force
-            repl_force = RepulsiveForce(relative_positions, neighbors, distance_matrixs, k=self.k2, r0=self.r0, power=self.power).sum(axis=0)
+            repl_force = RepulsiveForce(relative_positions, string_neighbors, distance_matrixs, k=self.k2, r0=self.r0, power=self.power).sum(axis=0)
             other_forces += repl_force
+        if self.k is not None:
+            string_force = StringForce(relative_positions, string_neighbors, distance_matrixs, k=self.k, r0=self.r0).sum(axis=0)
+            other_forces += string_force
+        # vdW force
         if self.epsilon is not None:
-            # vdW force
             vdw_force = vdWForce(relative_positions, neighbors, distance_matrixs, k=self.epsilon, r0=self.r0).sum(axis=0)
             other_forces += vdw_force
         # pull force

@@ -12,18 +12,26 @@ def RelativePositions(positions):
     return related_positions
 
 @jit
-def AttractiveForce(relative_positions, neighborhood, distances, k=1, power=1, epislon=1e-6, r0=1):
+def AttractiveForce(relative_positions, neighborhood, distances, k=1, power=1, r0=1):
     d0 = 2 * r0
     magnitude =  jnp.abs(k * (distances - d0) ** power) * jnp.maximum(0, jnp.sign(distances - d0))
-    direction = relative_positions / (distances + epislon)
+    direction = jnp.nan_to_num(relative_positions / distances, copy=False)
     force = magnitude * direction
     return force * neighborhood
 
 @jit
-def RepulsiveForce(related_positions, neighborhood, distances, k=1, power=1, epislon=1e-6, r0=1):
+def RepulsiveForce(relative_positions, neighborhood, distances, k=1, power=1, r0=1):
     d0 = 2 * r0
     magnitude =  jnp.abs(k * (distances - d0) ** power) * jnp.maximum(0, jnp.sign(d0 - distances))
-    direction = - related_positions / (distances + epislon)
+    direction = - jnp.nan_to_num(relative_positions / distances, copy=False)
+    force = magnitude * direction
+    return force * neighborhood
+
+@jit
+def StringForce(relative_positions, neighborhood, distances, k=1, r0=1):
+    d0 = 2 * r0
+    magnitude =  jnp.abs(k * (distances - d0))
+    direction = jnp.nan_to_num(relative_positions / distances, copy=False)
     force = magnitude * direction
     return force * neighborhood
 
@@ -64,7 +72,7 @@ def RadiusofGyration(positions, center, N):
     return jnp.linalg.norm(jnp.linalg.norm(positions - center, axis=-1), axis=0) / jnp.sqrt(N)
 
 @jit
-def LowestVelocity(velocities, vmin):
+def ZeroLowestVelocity(velocities, vmin):
     v_size = jnp.linalg.norm(velocities, axis=-1)
     return jnp.where(v_size[:, None] < vmin, jnp.zeros_like(velocities), velocities)
 

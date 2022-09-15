@@ -8,6 +8,7 @@ import os
 from tqdm import tqdm
 import sys
 from datetime import datetime, timezone, timedelta
+from utils import load_radius
 
 def main():
     # parser
@@ -18,9 +19,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="Membrane simulation")
     parser.add_argument("-n", type=int, default=1000, help="Number of particles")
-    parser.add_argument("--radius", type=str, default="./radius/circle_N100_neighbor1.npy", help="Radius of particles")
+    # parser.add_argument("--radius", type=str, default="./radius/circle_N100_neighbor1.npy", help="Radius of particles")
     parser.add_argument('-f', type=float, default=1e-6, help="Force constant")
     parser.add_argument('-k', type=float, default=1e-3, help="Spring constant")
+    parser.add_argument('-e', type=float, default=1e-6, help="epsilon for vdW force")
     parser.add_argument('-dt', type=float, default=0.001, help="Time step")
     parser.add_argument('-t', type=float, default=8e7, help="Total time")
     parser.add_argument('-o', type=str, default=default_output_dir, help="Output directory")
@@ -32,12 +34,14 @@ def main():
     parser.add_argument('--num_neighbor', type=int, default=1, help="Number of neighbors")
     parser.add_argument('--constant_velocity', type=float, default=None, help='Constant velocity')
     parser.add_argument('--vmin', type=float, default=None, help='Velocity threshold')
+    parser.add_argument('--string', action='store_true', help="Lipid connnected with string")
     # arguments
     args = parser.parse_args()
     N = args.n
-    radius = np.load(args.radius)
+    # radius = np.load(args.radius)
     f = args.f if args.f > 0 else None
-    k = args.k
+    k = args.k if args.k > 0 else None
+    eps = args.e if args.e > 0 else None
     dt = args.dt
     t = args.t
     output_dir = args.o
@@ -49,16 +53,18 @@ def main():
     num_neighbor = args.num_neighbor
     constant_velocity = args.constant_velocity
     vmin = args.vmin
+    string = args.string
+    radius = load_radius(N=N, all=all_neighbor, num_neighbor=num_neighbor, string=string, k=k, eps=eps)
 
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
 
     # model
-    model = Membrane_jax(N, Lipid_simple, k1=None, k2=None, r0=radius, epsilon=k, 
+    model = Membrane_jax(N, Lipid_simple, k1=None, k2=None, r0=radius, epsilon=eps, k=k, 
                 update_area=True, update_perimeter=True, update_rg=True, update_r_mcc=True,
                 jump_step=save_freq, dt=dt, init_shape='polygon', distance=0.375, 
-                all_neighbor=all_neighbor, num_neighbor=num_neighbor)
+                all_neighbor=all_neighbor, num_neighbor=num_neighbor, string=string)
 
     # simulation
     for i in tqdm(range(int(t)), file=sys.stdout, miniters=save_freq, mininterval=30):
