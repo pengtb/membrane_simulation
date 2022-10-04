@@ -76,3 +76,44 @@ def ZeroLowestVelocity(velocities, vmin):
     v_size = jnp.linalg.norm(velocities, axis=-1)
     return jnp.where(v_size[:, None] < vmin, jnp.zeros_like(velocities), velocities)
 
+@jit
+def EdgeVectors(positions):
+    # calculate the vector of each edge
+    edge_vectors = jnp.roll(positions, -1, axis=0) - positions
+    return edge_vectors
+
+@jit 
+def EdgeLengths(edge_vectors):
+    # calculate the length of each edge
+    edge_lens = jnp.linalg.norm(edge_vectors, axis=-1, keepdims=True)
+    return edge_lens
+
+@jit
+def CalcIncludedAngle(edge_vectors):
+    """calculate the angle between each two edges in a polygon using the dot product"""
+    # calculate the dot product of each two edges
+    next_edges = jnp.roll(edge_vectors, -1, axis=0)
+    dot_products = jnp.einsum('ij,ij->i', edge_vectors, next_edges)
+    # calculate the cross product of each two edges
+    cross_products = jnp.cross(edge_vectors, next_edges)
+
+    # calculate the angle between each two edges
+    angles = jnp.arctan2(cross_products, dot_products)
+    return angles
+
+@jit
+def AnglePenalty(angle_diffs, edge_vectors, penalty_constant=1):
+    """"use differences of angles to calculate the penalty on each node"""
+    # angle penalty
+    angle_penaltys = angle_diffs * penalty_constant
+    # direction vertical to the edge
+    oneside_directions = jnp.array([edge_vectors[:,1], -edge_vectors[:,0]]).T
+    # normalize the direction
+    oneside_directions = jnp.nan_to_num(oneside_directions / jnp.linalg.norm(oneside_directions, axis=-1, keepdims=True), copy=False)
+    # one side penalty
+    oneside_penaltys = jnp.einsum('ij,i->ij', oneside_directions, angle_penaltys)
+    # another side penalty
+    another_directions = jnp.roll(oneside_directions, -1, axis=0)
+    another_penaltys = jnp.einsum('ij,i->ij', another_directions, angle_penaltys)
+    another_penaltys = jnp.roll(another_penaltys, 2, axis=0)
+    return oneside_penaltys + another_penaltys

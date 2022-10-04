@@ -185,6 +185,7 @@ class Membrane_jax(mesa.Model):
         self.k1 = kwargs.get('k1', None)
         self.k2 = kwargs.get('k2', None)
         self.k = kwargs.get('k', None)
+        self.angle_penalty = kwargs.get('angle_penalty', None)
         self.epsilon = kwargs.get('epsilon', None)
         self.power = kwargs.get('power', 1)
         # time step
@@ -230,6 +231,10 @@ class Membrane_jax(mesa.Model):
         self.string = kwargs.get('string', False)
         if self.string:
             self.string_neighborhood = neighborhood_matrix(N, 1)
+            
+        # initialize angles between edges
+        edge_vectors = EdgeVectors(self.init_pos)
+        self.init_angles = CalcIncludedAngle(edge_vectors)
         
     def init_status(self, **kwargs):
         # status output options
@@ -400,6 +405,14 @@ class Membrane_jax(mesa.Model):
             if (not self.simple) | (self.schedule.steps == 1):
                 self.pull_f = jnp.asarray(pull_f)
             other_forces += self.pull_f
+        # angle penalty
+        if self.angle_penalty is not None:
+            edge_vectors = EdgeVectors(self.agent_positions)
+            angles = CalcIncludedAngle(edge_vectors)
+            angle_diffs = angles - self.init_angles
+            angle_penaltys = AnglePenalty(angle_diffs, edge_vectors, self.angle_penalty)
+            other_forces += angle_penaltys
+            
         # friction force
         friction_force_factor = kwargs.get('friction_force_factor', 0)
         if friction_force_factor is not None:

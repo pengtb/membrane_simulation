@@ -35,6 +35,7 @@ def main():
     parser.add_argument('--constant_velocity', type=float, default=None, help='Constant velocity')
     parser.add_argument('--vmin', type=float, default=None, help='Velocity threshold')
     parser.add_argument('--string', action='store_true', help="Lipid connnected with string")
+    parser.add_argument('--angle_penalty', type=float, default=None, help="Angle penalty")
     # arguments
     args = parser.parse_args()
     N = args.n
@@ -55,7 +56,7 @@ def main():
     vmin = args.vmin
     string = args.string
     radius = load_radius(N=N, all=all_neighbor, num_neighbor=num_neighbor, string=string, k=k, eps=eps)
-
+    angle_penalty = args.angle_penalty 
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -64,7 +65,8 @@ def main():
     model = Membrane_jax(N, Lipid_simple, k1=None, k2=None, r0=radius, epsilon=eps, k=k, 
                 update_area=True, update_perimeter=True, update_rg=True, update_r_mcc=True,
                 jump_step=save_freq, dt=dt, init_shape='polygon', distance=0.375, 
-                all_neighbor=all_neighbor, num_neighbor=num_neighbor, string=string)
+                all_neighbor=all_neighbor, num_neighbor=num_neighbor, string=string,
+                angle_penalty=angle_penalty)
 
     # simulation
     for i in tqdm(range(int(t)), file=sys.stdout, miniters=save_freq, mininterval=30):
