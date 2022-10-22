@@ -36,6 +36,9 @@ def main():
     parser.add_argument('--vmin', type=float, default=None, help='Velocity threshold')
     parser.add_argument('--string', action='store_true', help="Lipid connnected with string")
     parser.add_argument('--angle_penalty', type=float, default=None, help="Angle penalty")
+    parser.add_argument('--num_add_lipids', type=int, default=0, help="Number of lipids to add")
+    parser.add_argument('--total_num_add_lipids', type=int, default=0, help="Total number of lipids to add")
+    parser.add_argument('--add_dist_threshold', type=float, default=0.375*2, help="Distance threshold for adding lipids")
     # arguments
     args = parser.parse_args()
     N = args.n
@@ -56,7 +59,10 @@ def main():
     vmin = args.vmin
     string = args.string
     radius = load_radius(N=N, all=all_neighbor, num_neighbor=num_neighbor, string=string, k=k, eps=eps)
-    angle_penalty = args.angle_penalty 
+    angle_penalty = args.angle_penalty
+    num_add_lipids = args.num_add_lipids
+    total_num_add_lipids = args.total_num_add_lipids
+    add_dist_threshold = args.add_dist_threshold
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -69,6 +75,7 @@ def main():
                 angle_penalty=angle_penalty)
 
     # simulation
+    num_lipids = model.N + total_num_add_lipids
     for i in tqdm(range(int(t)), file=sys.stdout, miniters=save_freq, mininterval=30):
         model.step(friction_force_factor=None, pull_force_factor=f, 
                     update_neighbor=update_neighbor, 
@@ -76,6 +83,11 @@ def main():
                     constant_velocity=constant_velocity, vmin=vmin)
         if i % save_freq == 0:
             tqdm.write("Steps = {}, Time: {}".format(i, datetime.now(tzinfo)))
+        if num_add_lipids > 0:
+            if model.N <= num_lipids:
+                if model.membrane_growth(num_new_lipids=num_add_lipids,
+                                      distance_threshold=add_dist_threshold):
+                    tqdm.write(f"Current number of lipids: {model.N}")
 
     # visualization
     total = model.schedule.steps

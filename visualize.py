@@ -14,7 +14,7 @@ def scatter_animation(model=None, annotate_velocity=False, annotate_force=False,
         # add initial positions to dataframe
         init_status = pd.DataFrame(model.init_pos, columns=['pos_x', 'pos_y'])
         init_status.loc[:, 'Step'] = 0 
-        init_status.loc[:, 'AgentID'] = np.arange(model.N)
+        init_status.loc[:, 'AgentID'] = np.arange(len(init_status))
         simulations.reset_index(inplace=True)
         simulations = pd.concat([init_status, simulations], sort=True)
         simulations.fillna(0, inplace=True)

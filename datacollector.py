@@ -107,15 +107,12 @@ class JumpModelDataCollector(DataCollector):
         """
         # steps
         steps = np.arange(self.jump_step, self.model.schedule.steps+self.jump_step, self.jump_step)
-        steps = np.repeat(steps, self.model.N)
-        # agent ids
-        agent_ids = self.model.agent_ids
-        agent_ids = np.tile(agent_ids, len(self.all_agents_records))
         # records 
-        records = np.concatenate(self.all_agents_records, axis=0)
-        # table
-        agent_vars_table = pd.DataFrame(records, columns=self.agent_reporters.keys())
-        agent_vars_table.loc[:, 'AgentID'] = agent_ids
-        agent_vars_table.loc[:, 'Step'] = steps
-        agent_vars_table.set_index(['Step', 'AgentID'], inplace=True)
-        return agent_vars_table
+        tables = []
+        for step, record in zip(steps, self.all_agents_records):
+            table = pd.DataFrame(record, columns=self.agent_reporters.keys())
+            table.loc[:, 'Step'] = step
+            tables.append(table)
+        agent_vars_table = pd.concat(tables, axis=0)
+        agent_vars_table.index.name = 'AgentID'
+        return agent_vars_table.reset_index().set_index(['Step', 'AgentID'])

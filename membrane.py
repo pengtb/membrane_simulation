@@ -207,7 +207,7 @@ class Membrane_jax(mesa.Model):
         self.init_pos = self.agent_positions
 
         # initialize neighborhood matrix
-        self.all_neighbor = kwargs.get('all_neighbor', False)
+        self.all_neighbor = kwargs.get('all_neighbor', True)
         self.num_neighbor = kwargs.get('num_neighbor', 1)
         if not self.all_neighbor:
             self.agent_neighborhood = neighborhood_matrix(N, self.num_neighbor)
@@ -358,8 +358,8 @@ class Membrane_jax(mesa.Model):
             self.r_mcc = self.distance_matrix.max() / 2
     
     def update_neighborhood(self, **kwargs):
-        self.update_neighbor = kwargs.get('update_neighbor', True)
-        self.neighbor_distance_cutoff = kwargs.get('neighbor_distance_cutoff', 2.5*self.r0)
+        self.update_neighbor = kwargs.get('update_neighbor', False)
+        self.neighbor_distance_cutoff = kwargs.get('neighbor_distance_cutoff', 1.25*0.375)
         # distance matrix
         self.distance_matrix = DistanceMatrix(self.agent_positions)
         # udpate neighborhood matrix
@@ -425,6 +425,42 @@ class Membrane_jax(mesa.Model):
 
         return total_forces
 
+    def membrane_growth(self, **kwargs):
+        """add new lipids to the string system"""
+        # distances between lipids on the string
+        edge_vectors = EdgeVectors(self.agent_positions)
+        string_distances = EdgeLengths(edge_vectors).squeeze()
+        distance_threshold = kwargs.get('distance_threshold', None)
+        if distance_threshold is not None:
+            if jnp.all(string_distances < distance_threshold):
+                return None
+        # number of new lipids
+        num_new_lipids = kwargs.get('num_new_lipids', 2)
+        max_dists = jnp.sort(string_distances)[-num_new_lipids:]
+        max_dists_idxs = jnp.argsort(string_distances)[-num_new_lipids:]
+        # distance threshold for place to add new lipids
+        if distance_threshold is not None:
+            add_pos_idxs = max_dists_idxs[max_dists >= distance_threshold]
+        else:
+            add_pos_idxs = max_dists_idxs
+        # add new lipids
+        num_add_lipids = len(add_pos_idxs)
+        if num_add_lipids:
+            self.N += num_add_lipids
+            # add new positions
+            add_lipids_pos = self.agent_positions[add_pos_idxs] + 0.5 * edge_vectors[add_pos_idxs]
+            self.agent_positions = jnp.insert(self.agent_positions, add_pos_idxs+1, add_lipids_pos, axis=0)
+            # add new velocities
+            add_lipids_vel = self.velocities[add_pos_idxs] + 0.5 * EdgeVectors(self.velocities)[add_pos_idxs]
+            self.velocities = jnp.insert(self.velocities, add_pos_idxs+1, add_lipids_vel, axis=0)
+            # update string neighborhood
+            self.string_neighborhood = neighborhood_matrix(self.N, 1)
+            self.agent_neighborhood = neighborhood_matrix(self.N, self.num_neighbor)
+            # add lipids
+            lipid = kwargs.get('lipid', Lipid_simple)
+            self.lipids = self.lipids + [lipid(idx, self) for idx in range(self.N-num_add_lipids, self.N)]
+            self.mass = jnp.asarray([agent.mass for agent in self.lipids], dtype=jnp.float64)
+            return self.N
 # model with step method vectorized 
 class Membrane_vec(mesa.Model):
     def __init__(self, N, lipid=Lipid_simple, **kwargs):
