@@ -410,7 +410,8 @@ class Membrane_jax(mesa.Model):
             edge_vectors = EdgeVectors(self.agent_positions)
             angles = CalcIncludedAngle(edge_vectors)
             angle_diffs = angles - self.init_angles
-            angle_penaltys = AnglePenalty(angle_diffs, edge_vectors, self.angle_penalty)
+            # angle_penaltys = AnglePenalty(angle_diffs, edge_vectors, self.angle_penalty)
+            angle_penaltys = AnglePenalty(self.agent_positions, angle_diffs, self.angle_penalty)
             other_forces += angle_penaltys
             
         # friction force

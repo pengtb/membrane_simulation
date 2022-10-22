@@ -23,10 +23,12 @@ def load_radius(N=1000, all=True, num_neighbor=1, string=True, k=None, eps=None,
     if all:
         if string:
             if eps is not None:
-                eps = '{:.0e}'.format(eps).replace('0','')
+                eps = '{:.0e}'.format(eps)
+                # eps = eps.replace('0','')
                 radius_file += f'_vdwall{eps}'
             if k is not None:
-                k = '{:.0e}'.format(k).replace('0','')
+                k = '{:.0e}'.format(k)
+                # k = k.replace('0','')
                 radius_file += f'_string{k}'
         else:
             radius_file += '_all'

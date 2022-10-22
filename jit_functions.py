@@ -39,7 +39,8 @@ def StringForce(relative_positions, neighborhood, distances, k=1, r0=1):
 def vdWForce(relative_positions, neighborhood, distances, k=1, r0=1):
     d0 = 2 * r0
     # magnitude = 4*k*(-12*d0**12/(distances **13 + episilon) + 6*d0**6/(distances **7+ episilon))
-    magnitude = 4*k*(-12*d0**12/(distances **13) + 6*d0**6/(distances **7))
+    # magnitude = 4*k*(-12*d0**12/(distances **13) + 6*d0**6/(distances **7))
+    magnitude = 4*k*(-12*d0**12/(distances **14) + 6*d0**6/(distances **8))
     # direction = relative_positions / (distances + episilon)
     direction = relative_positions / (distances)
     force = magnitude * direction
@@ -101,19 +102,69 @@ def CalcIncludedAngle(edge_vectors):
     angles = jnp.arctan2(cross_products, dot_products)
     return angles
 
+# @jit
+# def AnglePenalty(angle_diffs, edge_vectors, penalty_constant=1):
+#     """"use differences of angles to calculate the penalty on each node"""
+#     # angle penalty
+#     angle_penaltys = angle_diffs * penalty_constant
+#     # direction vertical to the edge
+#     oneside_directions = jnp.array([edge_vectors[:,1], -edge_vectors[:,0]]).T
+#     # normalize the direction
+#     oneside_directions = jnp.nan_to_num(oneside_directions / jnp.linalg.norm(oneside_directions, axis=-1, keepdims=True), copy=False)
+#     # one side penalty
+#     oneside_penaltys = jnp.einsum('ij,i->ij', oneside_directions, angle_penaltys)
+#     # another side penalty
+#     another_directions = jnp.roll(oneside_directions, -1, axis=0)
+#     another_penaltys = jnp.einsum('ij,i->ij', another_directions, angle_penaltys)
+#     another_penaltys = jnp.roll(another_penaltys, 2, axis=0)
+#     return oneside_penaltys + another_penaltys
+
 @jit
-def AnglePenalty(angle_diffs, edge_vectors, penalty_constant=1):
-    """"use differences of angles to calculate the penalty on each node"""
-    # angle penalty
-    angle_penaltys = angle_diffs * penalty_constant
-    # direction vertical to the edge
-    oneside_directions = jnp.array([edge_vectors[:,1], -edge_vectors[:,0]]).T
-    # normalize the direction
-    oneside_directions = jnp.nan_to_num(oneside_directions / jnp.linalg.norm(oneside_directions, axis=-1, keepdims=True), copy=False)
-    # one side penalty
-    oneside_penaltys = jnp.einsum('ij,i->ij', oneside_directions, angle_penaltys)
-    # another side penalty
-    another_directions = jnp.roll(oneside_directions, -1, axis=0)
-    another_penaltys = jnp.einsum('ij,i->ij', another_directions, angle_penaltys)
-    another_penaltys = jnp.roll(another_penaltys, 2, axis=0)
-    return oneside_penaltys + another_penaltys
+def AnglePenalty(positions, angle_diffs, penalty_constant=1):
+    """
+    use differences of angles to calculate the penalty on each node
+    positions: (N, 2)
+    init_angles: (N,)
+    """
+    # coordinate of each node
+    x1, y1 = positions.T
+    x2, y2 = jnp.roll(positions, -1, axis=0).T
+    x3, y3 = jnp.roll(positions, -2, axis=0).T
+    k = penalty_constant
+    # vector of each edge
+    v1x = x2 - x1
+    v1y = y2 - y1
+    v2x = x3 - x2
+    v2y = y3 - y2
+    # force on (x1, y1)
+    fx1 = k * (-v1y) * angle_diffs / (v1x ** 2 + v1y ** 2)
+    fy1 = k * (v1x) * angle_diffs / (v1x ** 2 + v1y ** 2)
+    # force on (x3, y3)
+    fx3 = k * (-v2y) * angle_diffs / (v2x ** 2 + v2y ** 2)
+    fy3 = k * (v2x) * angle_diffs / (v2x ** 2 + v2y ** 2)
+    # force on (x2, y2)
+    fx2 = -k * angle_diffs * (x1**2*y2 - x1**2*y3 - 
+    2*x1*x2*y2 + 2*x1*x2*y3 + 
+    x2**2*y1 - x2**2*y3 - 
+    2*x2*x3*y1 + 2*x2*x3*y2 + 
+    x3**2*y1 - x3**2*y2 + 
+    y1**2*y2 - y1**2*y3 - 
+    y1*y2**2 + y1*y3**2 + 
+    y2**2*y3 - y2*y3**2) / (v1x ** 2 + v1y ** 2) / (v2x ** 2 + v2y ** 2)
+    fy2 = k * angle_diffs * (x1**2*x2 - x1**2*x3 - 
+    x1*x2**2 + x1*x3**2 +
+    x1*y2**2 - 2*x1*y2*y3 + 
+    x1*y3**2 + x2**2*x3 - 
+    x2*x3**2 + x2*y1**2 - 
+    2*x2*y1*y2 + 2*x2*y2*y3 -
+    x2*y3**2 - x3*y1**2 +
+    2*x3*y1*y2 - x3*y2**2) / (v1x ** 2 + v1y ** 2) / (v2x ** 2 + v2y ** 2)
+    # total force
+    f1 = jnp.array([fx1, fy1]).T
+    f2 = jnp.array([fx2, fy2]).T
+    f3 = jnp.array([fx3, fy3]).T
+    f2 = jnp.roll(f2, 1, axis=0)
+    f3 = jnp.roll(f3, 2, axis=0)
+    f = f1 + f2 + f3
+    f = -f # because we want to minimize the energy
+    return f
