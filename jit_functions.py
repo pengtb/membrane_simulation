@@ -168,3 +168,13 @@ def AnglePenalty(positions, angle_diffs, penalty_constant=1):
     f = f1 + f2 + f3
     f = -f # because we want to minimize the energy
     return f
+
+def PlaceLipidProb(dist, lower=0.375, threshold=0.75, power=3):
+    """
+    the probability of adding new lipids to the center of two lipids of distance dist
+    dist: (N,)
+    """
+    dist = jnp.maximum(dist - lower, 0)
+    dist = jnp.minimum(dist, threshold)
+    prob = dist / (threshold - lower)
+    return prob**power

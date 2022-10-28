@@ -7,6 +7,7 @@ import numpy as np
 from datacollector import JumpDataCollector, JumpModelDataCollector
 from force import attractive_force, repulsive_force, friction_force, pull_force, constant_velocity, zero_acceleration
 import jax.numpy as jnp
+import jax
 from jit_functions import *
 
 def initialize_shape_positions(N, init_shape, **kwargs):
@@ -178,6 +179,9 @@ class Membrane(mesa.Model):
 # model with step method vectorized with jax
 class Membrane_jax(mesa.Model):
     def __init__(self, N, lipid=Lipid_simple, **kwargs):
+        # seed
+        self.seed = kwargs.get('seed', 0)
+        self.prng = jax.random.PRNGKey(self.seed)
         # initialize model constants
         self.N = N
         self.r0 = kwargs.get('r0', 1)
@@ -201,6 +205,7 @@ class Membrane_jax(mesa.Model):
             space_radius = kwargs.get('space_radius', 100)
             positions = [(self.random.randrange(space_radius), self.random.randrange(space_radius)) for i in range(N)]
         else:
+            self.distance = kwargs.get('distance')
             positions = initialize_shape_positions(N, **kwargs)
         # place lipids
         self.agent_positions = jnp.asarray(positions, dtype=jnp.float64)
@@ -430,19 +435,23 @@ class Membrane_jax(mesa.Model):
         # distances between lipids on the string
         edge_vectors = EdgeVectors(self.agent_positions)
         string_distances = EdgeLengths(edge_vectors).squeeze()
-        distance_threshold = kwargs.get('distance_threshold', None)
+        distance_threshold = kwargs.get('distance_threshold', 0.75)
         if distance_threshold is not None:
             if jnp.all(string_distances < distance_threshold):
                 return None
+        
         # number of new lipids
-        num_new_lipids = kwargs.get('num_new_lipids', 2)
-        max_dists = jnp.sort(string_distances)[-num_new_lipids:]
-        max_dists_idxs = jnp.argsort(string_distances)[-num_new_lipids:]
-        # distance threshold for place to add new lipids
-        if distance_threshold is not None:
+        max_added_perstep = kwargs.get('max_added_perstep', None)
+        if max_added_perstep is not None:
+            max_dists = jnp.sort(string_distances)[-max_added_perstep:]
+            max_dists_idxs = jnp.argsort(string_distances)[-max_added_perstep:]
             add_pos_idxs = max_dists_idxs[max_dists >= distance_threshold]
         else:
-            add_pos_idxs = max_dists_idxs
+            power = kwargs.get('power', 2)
+            probs = PlaceLipidProb(string_distances, distance_threshold, self.distance*2, power=power)
+            add_pos_idxs = jnp.where(jax.random.bernoulli(self.prng, probs))[0]
+            self.prng = jax.random.split(self.prng, 1)[0]
+        
         # add new lipids
         num_add_lipids = len(add_pos_idxs)
         if num_add_lipids:
@@ -460,7 +469,11 @@ class Membrane_jax(mesa.Model):
             lipid = kwargs.get('lipid', Lipid_simple)
             self.lipids = self.lipids + [lipid(idx, self) for idx in range(self.N-num_add_lipids, self.N)]
             self.mass = jnp.asarray([agent.mass for agent in self.lipids], dtype=jnp.float64)
+            # update angles
+            if self.angle_penalty is not None:
+                self.init_angles = CalcIncludedAngle(EdgeVectors(self.agent_positions))
             return self.N
+            
 # model with step method vectorized 
 class Membrane_vec(mesa.Model):
     def __init__(self, N, lipid=Lipid_simple, **kwargs):

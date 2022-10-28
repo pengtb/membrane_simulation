@@ -9,6 +9,8 @@ from tqdm import tqdm
 import sys
 from datetime import datetime, timezone, timedelta
 from utils import load_radius
+from jax.config import config
+config.update("jax_enable_x64", True)
 
 def main():
     # parser
@@ -24,7 +26,7 @@ def main():
     parser.add_argument('-k', type=float, default=1e-3, help="Spring constant")
     parser.add_argument('-e', type=float, default=1e-6, help="epsilon for vdW force")
     parser.add_argument('-dt', type=float, default=0.001, help="Time step")
-    parser.add_argument('-t', type=float, default=8e7, help="Total time")
+    parser.add_argument('-t', type=float, default=4e7, help="Total time")
     parser.add_argument('-o', type=str, default=default_output_dir, help="Output directory")
     parser.add_argument('-s', type=int, default=int(1e4), help="Save frequency")
     parser.add_argument('-v', type=int, default=int(1e2), help="Number of visualization frames")
@@ -36,9 +38,10 @@ def main():
     parser.add_argument('--vmin', type=float, default=None, help='Velocity threshold')
     parser.add_argument('--string', action='store_true', help="Lipid connnected with string")
     parser.add_argument('--angle_penalty', type=float, default=None, help="Angle penalty")
-    parser.add_argument('--num_add_lipids', type=int, default=0, help="Number of lipids to add")
     parser.add_argument('--total_num_add_lipids', type=int, default=0, help="Total number of lipids to add")
-    parser.add_argument('--add_dist_threshold', type=float, default=0.375*2, help="Distance threshold for adding lipids")
+    parser.add_argument('--add_dist_threshold', type=float, default=None, help="Distance threshold for adding lipids")
+    parser.add_argument('--max_added_perstep', type=int, default=None, help="Maximum number of lipids to add perstep")
+    parser.add_argument('--power', type=int, default=2, help="Power of the force")
     # arguments
     args = parser.parse_args()
     N = args.n
@@ -60,9 +63,11 @@ def main():
     string = args.string
     radius = load_radius(N=N, all=all_neighbor, num_neighbor=num_neighbor, string=string, k=k, eps=eps)
     angle_penalty = args.angle_penalty
-    num_add_lipids = args.num_add_lipids
     total_num_add_lipids = args.total_num_add_lipids
     add_dist_threshold = args.add_dist_threshold
+    max_added_perstep = args.max_added_perstep
+    power = args.power
+    simple = False if add_dist_threshold is not None else True
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -72,7 +77,7 @@ def main():
                 update_area=True, update_perimeter=True, update_rg=True, update_r_mcc=True,
                 jump_step=save_freq, dt=dt, init_shape='polygon', distance=0.375, 
                 all_neighbor=all_neighbor, num_neighbor=num_neighbor, string=string,
-                angle_penalty=angle_penalty)
+                angle_penalty=angle_penalty, simple=simple)
 
     # simulation
     num_lipids = model.N + total_num_add_lipids
@@ -83,11 +88,10 @@ def main():
                     constant_velocity=constant_velocity, vmin=vmin)
         if i % save_freq == 0:
             tqdm.write("Steps = {}, Time: {}".format(i, datetime.now(tzinfo)))
-        if num_add_lipids > 0:
-            if model.N <= num_lipids:
-                if model.membrane_growth(num_new_lipids=num_add_lipids,
-                                      distance_threshold=add_dist_threshold):
-                    tqdm.write(f"Current number of lipids: {model.N}")
+        if model.N <= num_lipids:
+            if model.membrane_growth(max_added_perstep=max_added_perstep,
+                                    distance_threshold=add_dist_threshold, power=power):
+                tqdm.write(f"Current number of lipids: {model.N}")
 
     # visualization
     total = model.schedule.steps
