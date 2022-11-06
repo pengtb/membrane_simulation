@@ -180,8 +180,9 @@ class Membrane(mesa.Model):
 class Membrane_jax(mesa.Model):
     def __init__(self, N, lipid=Lipid_simple, **kwargs):
         # seed
-        self.seed = kwargs.get('seed', 0)
-        self.prng = jax.random.PRNGKey(self.seed)
+        if kwargs.get('prob', True):
+            self.seed = kwargs.get('seed', 0)
+            self.prng = jax.random.PRNGKey(self.seed)
         # initialize model constants
         self.N = N
         self.r0 = kwargs.get('r0', 1)
@@ -441,16 +442,23 @@ class Membrane_jax(mesa.Model):
                 return None
         
         # number of new lipids
-        max_added_perstep = kwargs.get('max_added_perstep', None)
+        max_added_perstep = kwargs.get('max_added_perstep', 2)
+        sort_dists = jnp.sort(string_distances) 
+        sort_dists_idxs = jnp.argsort(string_distances)
         if max_added_perstep is not None:
-            max_dists = jnp.sort(string_distances)[-max_added_perstep:]
-            max_dists_idxs = jnp.argsort(string_distances)[-max_added_perstep:]
-            add_pos_idxs = max_dists_idxs[max_dists >= distance_threshold]
+            max_dists = sort_dists[-max_added_perstep:]
+            max_dists_idxs = sort_dists_idxs[-max_added_perstep:]
         else:
+            max_dists = sort_dists
+            max_dists_idxs = sort_dists_idxs
+        if hasattr(self, 'prng'):
             power = kwargs.get('power', 2)
-            probs = PlaceLipidProb(string_distances, distance_threshold, self.distance*2, power=power)
+            probs = PlaceLipidProb(max_dists, distance_threshold, self.distance*2, power=power)
             add_pos_idxs = jnp.where(jax.random.bernoulli(self.prng, probs))[0]
+            add_pos_idxs = max_dists_idxs[add_pos_idxs]
             self.prng = jax.random.split(self.prng, 1)[0]
+        else:
+            add_pos_idxs = max_dists_idxs[max_dists >= distance_threshold]
         
         # add new lipids
         num_add_lipids = len(add_pos_idxs)
