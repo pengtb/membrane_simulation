@@ -465,7 +465,13 @@ class Membrane_jax(mesa.Model):
         if num_add_lipids:
             self.N += num_add_lipids
             # add new positions
-            add_lipids_pos = self.agent_positions[add_pos_idxs] + 0.5 * edge_vectors[add_pos_idxs]
+            if kwargs.get('no_overlap'):
+                pos_vec = edge_vectors[add_pos_idxs]
+                pos_veclen = string_distances[add_pos_idxs]
+                new_pos_vectors = NooverlappNewLipidPos(pos_vec, pos_veclen, self.distance)
+            else:
+                new_pos_vectors = edge_vectors[add_pos_idxs]
+            add_lipids_pos = self.agent_positions[add_pos_idxs] + 0.5 * new_pos_vectors
             self.agent_positions = jnp.insert(self.agent_positions, add_pos_idxs+1, add_lipids_pos, axis=0)
             # add new velocities
             add_lipids_vel = self.velocities[add_pos_idxs] + 0.5 * EdgeVectors(self.velocities)[add_pos_idxs]

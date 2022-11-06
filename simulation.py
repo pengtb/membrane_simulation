@@ -44,6 +44,7 @@ def main():
     parser.add_argument('--add_cooldown_steps', type=int, default=None, help="Number of steps for cooldown after adding new lipids")
     parser.add_argument('--power', type=int, default=2, help="Power of the force")
     parser.add_argument('--prob', action='store_true', help="Probability of adding lipids")
+    parser.add_argument('--no_overlap', action='store_true', help="No overlap when adding lipids")
     # arguments
     args = parser.parse_args()
     N = args.n
@@ -72,6 +73,7 @@ def main():
     simple = False if add_dist_threshold is not None else True
     add_cooldown_steps = args.add_cooldown_steps if args.add_cooldown_steps is not None else 0
     prob = args.prob
+    no_overlap = args.no_overlap
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -100,7 +102,7 @@ def main():
         if cooldown_count == 0:
             if model.N < num_lipids:
                 if model.membrane_growth(max_added_perstep=max_added_perstep,
-                                        distance_threshold=add_dist_threshold, power=power):
+                                        distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap):
                     tqdm.write(f"Current number of lipids: {model.N}")
                     cooldown_count = add_cooldown_steps
 
