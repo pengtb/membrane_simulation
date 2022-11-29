@@ -7,8 +7,17 @@ def DistanceMatrix(positions):
     return jnp.linalg.norm(positions[:, None, :] - positions[None, :, :], axis=-1)
 
 @jit
+def PairDistanceMatrix(positions1, positions2):
+    return jnp.linalg.norm(positions1[:, None, :] - positions2[None, :, :], axis=-1)
+
+@jit
 def RelativePositions(positions):
     related_positions = positions[:, None, :] - positions[None, :, :]
+    return related_positions
+
+@jit
+def PairRelativePositions(positions1, positions2):
+    related_positions = positions1[:, None, :] - positions2[None, :, :]
     return related_positions
 
 @jit
@@ -36,8 +45,8 @@ def StringForce(relative_positions, neighborhood, distances, k=1, r0=1):
     return force * neighborhood
 
 @jit 
-def vdWForce(relative_positions, neighborhood, distances, k=1, r0=1):
-    d0 = 2 * r0
+def vdWForce(relative_positions, neighborhood, distances, k=1, d0=1):
+    # d0 = 2 * r0
     # magnitude = 4*k*(-12*d0**12/(distances **13 + episilon) + 6*d0**6/(distances **7+ episilon))
     # magnitude = 4*k*(-12*d0**12/(distances **13) + 6*d0**6/(distances **7))
     magnitude = 4*k*(-12*d0**12/(distances **14) + 6*d0**6/(distances **8))
@@ -169,6 +178,7 @@ def AnglePenalty(positions, angle_diffs, penalty_constant=1):
     f = -f # because we want to minimize the energy
     return f
 
+@jit
 def PlaceLipidProb(dist, lower=0.375, threshold=0.75, power=3):
     """
     the probability of adding new lipids to the center of two lipids of distance dist
@@ -179,6 +189,7 @@ def PlaceLipidProb(dist, lower=0.375, threshold=0.75, power=3):
     prob = dist / (threshold - lower)
     return prob**power
 
+@jit
 def NooverlappNewLipidPos(edge_vecs, edge_lens, d=0.375):
     """
     the direction vector of placing new lipid if no overlap is allowed
@@ -190,7 +201,16 @@ def NooverlappNewLipidPos(edge_vecs, edge_lens, d=0.375):
     sin_angle = jnp.sqrt(1 - cos_angle**2) # (N,)
     # rotate direction vector by angle
     rotation_matrix = jnp.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]]).transpose(2,0,1) # (N, 2, 2)
+    # rotation_matrix = jnp.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]]).transpose(2,1,0) # (N, 2, 2)
     new_edge_vecs = jnp.einsum('ijk,ik->ij', rotation_matrix, edge_vecs) # (N, 2)
     # adjust the length to d
     new_edge_vecs = new_edge_vecs / cos_angle
     return new_edge_vecs
+
+@jit
+def ClipVelocity(velocities, max_vel=0.05):
+    """
+    clip the velocity to a maximum value
+    """
+    norm = jnp.linalg.norm(velocities, axis=-1, keepdims=True)
+    return velocities / (norm + 1e-10) * jnp.minimum(norm, max_vel)

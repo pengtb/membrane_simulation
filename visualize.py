@@ -5,25 +5,35 @@ import numpy as np
 from copy import deepcopy
 from membrane import Membrane_jax
 
-def scatter_animation(model=None, annotate_velocity=False, annotate_force=False, speed=50, subset=None, prev=None, table=None, **kwargs):
+def scatter_animation(model=None, annotate_velocity=False, annotate_force=False, annotate_molecule=False, speed=50, subset=None, prev=None, table=None, **kwargs):
     if model is not None:
         simulations = model.datacollector.get_agent_vars_dataframe()
+        if annotate_molecule:
+            actin_simulations = model.actin_datacollector.get_agent_vars_dataframe().rename(columns={'actin_pos_x':'pos_x', 'actin_pos_y':'pos_y'})
+            actin_simulations.loc[:, 'molecule'] = 'actin'
+            simulations.loc[:, 'molecule'] = 'lipid'
+            actin_simulations.loc[:, 'size'] = float(model.actin_r0)
+            simulations.loc[:, 'size'] = float(model.r0)
+            simulations = pd.concat([simulations, actin_simulations])
     else:
         simulations = table
-    if (prev is None) & (model is not None):
-        # add initial positions to dataframe
-        init_status = pd.DataFrame(model.init_pos, columns=['pos_x', 'pos_y'])
-        init_status.loc[:, 'Step'] = 0 
-        init_status.loc[:, 'AgentID'] = np.arange(len(init_status))
-        simulations.reset_index(inplace=True)
-        simulations = pd.concat([init_status, simulations], sort=True)
-        simulations.fillna(0, inplace=True)
+    # if (prev is None) & (model is not None):
+    #     # add initial positions to dataframe
+    #     init_status = pd.DataFrame(model.init_pos, columns=['pos_x', 'pos_y'])
+    #     init_status.loc[:, 'Step'] = 0 
+    #     init_status.loc[:, 'AgentID'] = np.arange(len(init_status))
+    #     if annotate_molecule:
+    #         init_status.loc[:, 'molecule'] = 'lipid'
+    #     simulations.reset_index(inplace=True)
+    #     simulations = pd.concat([init_status, simulations], sort=True)
+    #     simulations.fillna(0, inplace=True)
     if 'Step' not in simulations.columns:
         simulations.reset_index(inplace=True)
     # size of markers by force
     if not annotate_force:
         if 'size' not in simulations.columns:
-            size = model.r0
+            size = float(model.r0)
+            # size = 0.375
             simulations.loc[:, 'size'] = size
         size = 'size'
     else:
@@ -35,6 +45,11 @@ def scatter_animation(model=None, annotate_velocity=False, annotate_force=False,
     else:
         simulations.loc[:, 'log10v'] = np.log10(np.sqrt(simulations['vx']**2 + simulations['vy']**2) + 1)
         color = 'log10v'
+    # color of markers by type of molecule
+    if not annotate_molecule:
+        color = None
+    else:
+        color = 'molecule'
 
     # add prev
     if prev is not None:
@@ -45,7 +60,9 @@ def scatter_animation(model=None, annotate_velocity=False, annotate_force=False,
         simulations = simulations.loc[simulations['Step'].isin(subset)]
 
     # visualize
-    fig = px.scatter(simulations, x='pos_x', y='pos_y', 
+    xpos_colname = kwargs.get('xpos_colname', 'pos_x')
+    ypos_colname = kwargs.get('ypos_colname', 'pos_y')
+    fig = px.scatter(simulations, x=xpos_colname, y=ypos_colname, 
             animation_frame='Step', animation_group='AgentID', 
             hover_name='AgentID', width=900, height=900, size=size, size_max=10, color=color, range_color=[0, 3])
     # fig.show()
@@ -193,7 +210,7 @@ def metric_scatter_animation(model=None, speed=50, subset=None, prev=None, table
     return fig, ratio
 
 # combine metric fig & scatter fig
-def combine_metric_scatter(fig, metric_fig):
+def combine_metric_scatter(fig, metric_fig, annotate_molecule=False):
     fig = deepcopy(fig)
     # update layout
     updated_layout = fig.update_layout({'xaxis2':{'anchor':'y2', 'domain':[0.,1.], 
@@ -204,29 +221,32 @@ def combine_metric_scatter(fig, metric_fig):
                                             'range':metric_fig.layout.yaxis.range, 
                                             'title':metric_fig.layout.yaxis.title},
                                         'height': 1100,
-                                        'legend_tracegroupgap':180})
+                                        'legend_tracegroupgap':10 if annotate_molecule else 180,})
 
     # update traces
     _ = fig.add_traces(metric_fig.data)
 
     # change axis of newly added traces
-    for idx in range(1, len(fig.data)):
+    begin = 1 if not annotate_molecule else 2
+    for idx in range(begin, len(fig.data)):
         fig.data[idx].xaxis = 'x2'
         fig.data[idx].yaxis = 'y2'
 
     # update frames
     for idx in range(len(metric_fig.frames)):
-        orig_data = fig.frames[idx].data[0]
+        orig_data = [fig.frames[idx].data[0]]
+        if annotate_molecule:
+            orig_data = orig_data + [fig.frames[idx].data[1]]
         metric_data = list(metric_fig.frames[idx].data)
         for midx in range(len(metric_data)):
             metric_data[midx].xaxis = 'x2'
             metric_data[midx].yaxis = 'y2'
-        fig.frames[idx].update(data=[orig_data] + metric_data)
+        fig.frames[idx].update(data=orig_data + metric_data)
     
-    # change positions of the color axis
-    _ = fig.update_coloraxes({'colorbar':{'len':0.6, 'y':0.65}})
-
-    # change positions of legend
-    _ = fig.update_layout({'legend':{'y':0.1}})
+    if not annotate_molecule:
+        # change positions of the color axis
+        _ = fig.update_coloraxes({'colorbar':{'len':0.6, 'y':0.65}})
+        # change positions of legend
+        _ = fig.update_layout({'legend':{'y':0.1}})
 
     return fig

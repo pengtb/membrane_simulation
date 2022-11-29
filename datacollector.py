@@ -98,7 +98,7 @@ class JumpModelDataCollector(DataCollector):
         model_vars_table.index = model_vars_table.index * self.jump_step
         return model_vars_table
 
-    def get_agent_vars_dataframe(self):
+    def get_agent_vars_dataframe(self, withinit=True):
         """Create a pandas DataFrame from the agent variables.
 
         The DataFrame has one column for each variable, with two additional
@@ -106,7 +106,8 @@ class JumpModelDataCollector(DataCollector):
 
         """
         # steps
-        steps = np.arange(self.jump_step, self.model.schedule.steps+self.jump_step, self.jump_step)
+        begin = 0 if withinit else self.jump_step
+        steps = np.arange(begin, self.model.schedule.steps+self.jump_step, self.jump_step)
         # records 
         tables = []
         for step, record in zip(steps, self.all_agents_records):

@@ -213,13 +213,7 @@ class Membrane_jax(mesa.Model):
         self.init_pos = self.agent_positions
 
         # initialize neighborhood matrix
-        self.all_neighbor = kwargs.get('all_neighbor', True)
-        self.num_neighbor = kwargs.get('num_neighbor', 1)
-        if not self.all_neighbor:
-            self.agent_neighborhood = neighborhood_matrix(N, self.num_neighbor)
-        else:
-            self.agent_neighborhood = jnp.ones((N, N), dtype=bool) ^ jnp.eye(N, k=0, dtype=bool)
-        self.distance_matrix = DistanceMatrix(self.agent_positions)
+        self.init_neighborhood(self.N, **kwargs)
         
         # initialize velocities
         self.velocities = jnp.zeros((N, 2), dtype=jnp.float64)
@@ -241,6 +235,15 @@ class Membrane_jax(mesa.Model):
         # initialize angles between edges
         edge_vectors = EdgeVectors(self.init_pos)
         self.init_angles = CalcIncludedAngle(edge_vectors)
+   
+    def init_neighborhood(self, N, **kwargs):
+        self.all_neighbor = kwargs.get('all_neighbor', True)
+        self.num_neighbor = kwargs.get('num_neighbor', 1)
+        if not self.all_neighbor:
+            self.agent_neighborhood = neighborhood_matrix(N, self.num_neighbor)
+        else:
+            self.agent_neighborhood = jnp.ones((N, N), dtype=bool) ^ jnp.eye(N, k=0, dtype=bool)
+        self.distance_matrix = DistanceMatrix(self.agent_positions)
         
     def init_status(self, **kwargs):
         # status output options
@@ -268,8 +271,11 @@ class Membrane_jax(mesa.Model):
             if not hasattr(self, 'distance_matrix'):
                 self.distance_matrix = DistanceMatrix(self.agent_positions)
             self.r_mcc = self.distance_matrix.max() / 2
+        # initialize other agents status
+        self.velocities = jnp.zeros((self.N, 2), dtype=jnp.float64)
+        self.forces = jnp.zeros((self.N, 2), dtype=jnp.float64)
 
-        # reporters
+        # model reporters
         model_reporters = {}
         if self.update_area:
             model_reporters['area'] = 'area'
@@ -295,28 +301,16 @@ class Membrane_jax(mesa.Model):
                                                     model_reporters=model_reporters,
                                                     agent_reporters=agent_reporters,
                                                     jump_step=self.jump_step)
-
+        self.datacollector.collect(self)
+        
     def step(self, **kwargs):
         self.schedule.step(**kwargs)
-
-        # speed limit
-        vlim = kwargs.get('vlim', None)
-        if vlim is not None:
-            v_size = jnp.linalg.norm(self.velocities, axis=-1)
-            v_size_cliped = jnp.minimum(v_size, vlim)
-            self.velocities = self.velocities * v_size_cliped[:, None] / v_size[:]
-        vmin = kwargs.get('vmin', None)
-        if vmin is not None:
-            self.velocities = ZeroLowestVelocity(self.velocities, vmin)
-            
         # run a step
         # update neighborhood
         self.update_neighborhood(**kwargs)
-
         # update forces
         total_forces = self.update_forces(**kwargs)
-
-        # update positions
+        # update accelerations
         acceleration = total_forces / self.mass[:, None]
         c_velocity = kwargs.get('constant_velocity', None)
         if c_velocity is not None:
@@ -328,16 +322,21 @@ class Membrane_jax(mesa.Model):
         c_acceleration = kwargs.get('constant_acceleration', None)
         if c_acceleration is not None:
             acceleration = acceleration * zero_acceleration(0, self.N) + constant_velocity(0, self.N, c_acceleration)
-
-        movement = self.velocities * self.dt + acceleration * self.dt ** 2 / 2
-        self.agent_positions = self.agent_positions + movement
-
         # update velocities
-        self.velocities = self.velocities + acceleration * self.dt
-
+        nextstep_velocities = self.velocities + acceleration * self.dt
+        # speed limit
+        vlim = kwargs.get('vlim', None)
+        if vlim is not None:
+            nextstep_velocities = ClipVelocity(nextstep_velocities, vlim)
+        vmin = kwargs.get('vmin', None)
+        if vmin is not None:
+            nextstep_velocities = ZeroLowestVelocity(nextstep_velocities, vmin)
+        # update positions
+        movement = (self.velocities + nextstep_velocities) / 2 * self.dt
+        self.agent_positions = self.agent_positions + movement
+        self.velocities = nextstep_velocities
         # update other status
         self.update_status()
-
         # collect data
         self.datacollector.collect(self)
             
@@ -402,7 +401,7 @@ class Membrane_jax(mesa.Model):
             other_forces += string_force
         # vdW force
         if self.epsilon is not None:
-            vdw_force = vdWForce(relative_positions, neighbors, distance_matrixs, k=self.epsilon, r0=self.r0).sum(axis=0)
+            vdw_force = vdWForce(relative_positions, neighbors, distance_matrixs, k=self.epsilon, d0=self.r0*2).sum(axis=0)
             other_forces += vdw_force
         # pull force
         pull_force_factor = kwargs.get('pull_force_factor', 1e-5)
@@ -419,9 +418,12 @@ class Membrane_jax(mesa.Model):
             # angle_penaltys = AnglePenalty(angle_diffs, edge_vectors, self.angle_penalty)
             angle_penaltys = AnglePenalty(self.agent_positions, angle_diffs, self.angle_penalty)
             other_forces += angle_penaltys
-            
+        # additional force
+        additional_force = kwargs.get('additional_force', None)
+        if additional_force is not None:
+            other_forces += additional_force
         # friction force
-        friction_force_factor = kwargs.get('friction_force_factor', 0)
+        friction_force_factor = kwargs.get('friction_force_factor', None)
         if friction_force_factor is not None:
             fric_force = FrictionForce(self.velocities, other_forces, force=friction_force_factor)
             total_forces = other_forces + fric_force
@@ -469,8 +471,12 @@ class Membrane_jax(mesa.Model):
                 pos_vec = edge_vectors[add_pos_idxs]
                 pos_veclen = string_distances[add_pos_idxs]
                 new_pos_vectors = NooverlappNewLipidPos(pos_vec, pos_veclen, self.distance)
+                if jnp.isnan(new_pos_vectors).any():
+                    print('Cannot keep the distance between lipids, placing new lipids in the middle instead.')
+                    new_pos_vectors = edge_vectors[add_pos_idxs]
             else:
                 new_pos_vectors = edge_vectors[add_pos_idxs]
+            
             add_lipids_pos = self.agent_positions[add_pos_idxs] + 0.5 * new_pos_vectors
             self.agent_positions = jnp.insert(self.agent_positions, add_pos_idxs+1, add_lipids_pos, axis=0)
             # add new velocities
@@ -670,3 +676,58 @@ class Membrane_vec(mesa.Model):
         self.forces = total_forces
 
         return total_forces
+    
+class Cytoskeleton(Membrane_jax):
+    def __init__(self, num_lipids, num_actins=None, **kwargs):
+        super().__init__(num_lipids, lipid=Lipid_simple, **kwargs)
+        # initialize constants
+        self.actin_mass = kwargs.get('actin_mass', 1)
+        self.actin_r0 = self.r0 if kwargs.get('actin_r0', None) is None else kwargs.get('actin_r0')
+        self.actin_dist = self.actin_r0 * 2 if kwargs.get('actin_dist', None) is None else kwargs.get('actin_dist')
+        self.num_actins = num_actins if num_actins is not None else int(60 / self.actin_dist)
+        actin_pos_x = jnp.arange(self.num_actins, dtype=jnp.float64) * self.actin_dist
+        actin_pos_y = jnp.zeros_like(actin_pos_x)
+        self.actin_pos = jnp.stack([actin_pos_x, actin_pos_y], axis=-1)
+        self.actin_vel = np.zeros((self.num_actins, 2), dtype=np.float64)
+        self.actin_vel[:,0] = kwargs.get('actin_vel', 1e-3)
+        self.actin_vel = jnp.asarray(self.actin_vel)
+        self.max_actin_vel = kwargs.get('max_actin_vel', 1e-1)
+        # status report
+        agent_reporter = {}
+        agent_reporter['actin_pos_x'] = lambda a: a.actin_pos[:,0]
+        agent_reporter['actin_pos_y'] = lambda a: a.actin_pos[:,1]
+        self.actin_datacollector = JumpModelDataCollector(self, 
+                                                          agent_reporters=agent_reporter, 
+                                                          jump_step=self.jump_step)
+        self.actin_datacollector.collect(self)
+        
+    def step(self, **kwargs):
+        # update actin velocity
+        if self.actin_vel[0,0] < self.max_actin_vel:
+            actin_vel_update = kwargs.get('actin_vel_update', None)
+            if actin_vel_update is not None:
+                # vel_diff = self.actin_vel[0,0] - self.velocities[:,0].max()
+                terminal_dist = self.agent_positions[:,0].max() - self.actin_pos[0,0]
+                if terminal_dist > self.actin_vel[0,0] * self.dt:
+                # if vel_diff <= actin_vel_update:
+                    actin_vel = np.zeros((self.num_actins, 2), dtype=np.float64)
+                    actin_vel[:,0] = self.actin_vel[0,0] + actin_vel_update
+                    self.actin_vel = jnp.asarray(actin_vel)
+                    print('Warming up actin velocity to {}'.format(self.actin_vel[0,0]))
+        # update actin positions
+        self.actin_pos = self.actin_pos + self.actin_vel * self.dt
+        # add new actin if needed
+        if self.actin_pos[0,0] > self.actin_dist:
+            new_actin_pos = (self.actin_pos[0,0] - self.actin_dist, 0)
+            self.actin_pos = jnp.concatenate((jnp.array(new_actin_pos, dtype=jnp.float64)[None, :], self.actin_pos), axis=0)
+            self.actin_vel = jnp.concatenate((self.actin_vel[[0], :], self.actin_vel), axis=0)
+            self.num_actins += 1
+        # forces on membrane
+        relative_pos = PairRelativePositions(self.agent_positions, self.actin_pos) # shape: (num_lipids, num_actins, 2)
+        distance_mat = PairDistanceMatrix(self.agent_positions, self.actin_pos)[:, :, None] # shape: (num_lipids, num_actins, 1)
+        neighborhood_mat = jnp.ones_like(distance_mat, dtype=jnp.float64) # shape: (num_lipids, num_actins, 1)
+        add_force = vdWForce(relative_pos, neighborhood_mat, distance_mat, k=self.epsilon, d0=self.r0+self.actin_r0).sum(axis=1) # shape: (num_lipids, 2)
+        # update membrane according to actin positions
+        super().step(additional_force=add_force, **kwargs)
+        # report pos of actins
+        self.actin_datacollector.collect(self)
