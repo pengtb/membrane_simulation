@@ -214,3 +214,11 @@ def ClipVelocity(velocities, max_vel=0.05):
     """
     norm = jnp.linalg.norm(velocities, axis=-1, keepdims=True)
     return velocities / (norm + 1e-10) * jnp.minimum(norm, max_vel)
+
+@jit
+def ClipMovement(movement, max_move=0.05):
+    """
+    clip the movement to a maximum value
+    """
+    norm = jnp.linalg.norm(movement, axis=-1, keepdims=True)
+    return movement / (norm + 1e-10) * jnp.minimum(norm, max_move)
