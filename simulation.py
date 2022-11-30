@@ -51,6 +51,7 @@ def main():
     parser.add_argument('--num_actins', type=int, default=None, help="Number of actins")
     parser.add_argument('--actin_r0', type=float, default=1, help="Actin radius")
     parser.add_argument('--actin_vel', type=float, default=0.1, help="Actin velocity")
+    parser.add_argument('--num_lines', type=int, default=6, help="Number of lines")
     
     # arguments
     args = parser.parse_args()
@@ -87,6 +88,7 @@ def main():
     num_actins = args.num_actins
     actin_r0 = args.actin_r0
     actin_vel = args.actin_vel
+    num_lines = args.num_lines
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -99,7 +101,7 @@ def main():
                     all_neighbor=all_neighbor, num_neighbor=num_neighbor, string=string,
                     angle_penalty=angle_penalty, simple=simple, prob=prob)
     else:
-        model = Cytoskeleton(N, num_actins=num_actins, k1=None, k2=None, r0=radius, epsilon=eps, k=k, 
+        model = Cytoskeleton(N, num_actins=num_actins, num_lines=num_lines, k1=None, k2=None, r0=radius, epsilon=eps, k=k, 
                     update_area=True, update_perimeter=True, update_rg=True, update_r_mcc=True,
                     jump_step=save_freq, dt=dt, init_shape='polygon', distance=0.375, 
                     all_neighbor=all_neighbor, num_neighbor=num_neighbor, string=string,
