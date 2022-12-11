@@ -9,6 +9,7 @@ from force import attractive_force, repulsive_force, friction_force, pull_force,
 import jax.numpy as jnp
 import jax
 from jit_functions import *
+import time
 
 def initialize_shape_positions(N, init_shape, **kwargs):
     if init_shape == 'circle':
@@ -33,7 +34,7 @@ def initialize_shape_positions(N, init_shape, **kwargs):
 
 def initialize_actin_positions(actin_r0, num_lines=6, nuc_r0=25.8, cell_r0=59.68):
     # actin positions on one line
-    sing_actin_pos_x = np.arange(nuc_r0, cell_r0, actin_r0)
+    sing_actin_pos_x = np.arange(nuc_r0, cell_r0, actin_r0*2)
     sing_actin_pos_y = np.zeros_like(sing_actin_pos_x)
     sing_actin_pos = np.stack([sing_actin_pos_x, sing_actin_pos_y], axis=1)
     # angle to rotate
@@ -702,14 +703,14 @@ class Cytoskeleton(Membrane_jax):
         self.actin_dist = self.actin_r0 * 2 if kwargs.get('actin_dist', None) is None else kwargs.get('actin_dist')
         
         self.nuc_r0 = kwargs.get('nuc_r0', np.power(0.08, 1/3) * 59.68)
-        self.actin_pos = jnp.asarray(initialize_actin_positions(self.actin_r0, num_lines, self.nuc_r0, cell_r0=59.68))
+        self.actin_pos = jnp.asarray(initialize_actin_positions(self.actin_r0, num_lines, self.nuc_r0, cell_r0=kwargs.get('cell_r0', 59.68)))
         self.num_actins = num_actins if num_actins is not None else len(self.actin_pos)
-        self.num_singline_actions = self.num_actins // num_lines
+        self.num_singline_actins = self.num_actins // num_lines
         
         self.actin_vel = np.zeros((self.num_actins, 2), dtype=np.float64)
-        self.actin_vel[:self.num_singline_actions,0] = kwargs.get('actin_vel', 1e-3)
+        self.actin_vel[:self.num_singline_actins,0] = kwargs.get('actin_vel', 1e-3)
         self.actin_vel = jnp.asarray(self.actin_vel)
-        self.max_actin_vel = kwargs.get('max_actin_vel', 1e-1)
+        self.max_actin_vel = kwargs.get('max_actin_vel', None)
         # status report
         agent_reporter = {}
         agent_reporter['actin_pos_x'] = lambda a: a.actin_pos[:,0]
@@ -721,26 +722,28 @@ class Cytoskeleton(Membrane_jax):
         
     def step(self, **kwargs):
         # update actin velocity
-        if self.actin_vel[0,0] < self.max_actin_vel:
-            actin_vel_update = kwargs.get('actin_vel_update', None)
-            if actin_vel_update is not None:
-                # vel_diff = self.actin_vel[0,0] - self.velocities[:,0].max()
-                terminal_dist = self.agent_positions[:,0].max() - self.actin_pos[0,0]
-                if terminal_dist > self.actin_vel[0,0] * self.dt:
-                # if vel_diff <= actin_vel_update:
-                    actin_vel = np.zeros((self.num_actins, 2), dtype=np.float64)
-                    actin_vel[:self.num_singline_actions,0] = self.actin_vel[0,0] + actin_vel_update
-                    self.actin_vel = jnp.asarray(actin_vel)
-                    print('Warming up actin velocity to {}'.format(self.actin_vel[0,0]))
+        if self.max_actin_vel is not None:
+            if self.actin_vel[0,0] < self.max_actin_vel:
+                actin_vel_update = kwargs.get('actin_vel_update', None)
+                if actin_vel_update is not None:
+                    # vel_diff = self.actin_vel[0,0] - self.velocities[:,0].max()
+                    # terminal_dist = self.agent_positions[:,0].max() - self.actin_pos[0,0]
+                    # if terminal_dist > self.actin_vel[0,0] * self.dt:
+                    # if vel_diff <= actin_vel_update:
+                    if self.velocities[:,0].max() >= self.actin_vel[0,0]:
+                        actin_vel = np.zeros((self.num_actins, 2), dtype=np.float64)
+                        actin_vel[:self.num_singline_actins,0] = self.actin_vel[0,0] + actin_vel_update
+                        self.actin_vel = jnp.asarray(actin_vel)
+                        print('Warming up actin velocity to {}'.format(self.actin_vel[0,0]))
         # update actin positions
         self.actin_pos = self.actin_pos + self.actin_vel * self.dt
         # add new actin if needed
         if self.actin_pos[0,0] - self.nuc_r0 > self.actin_dist:
-            new_actin_pos = (self.actin_pos[0,0] - self.actin_dist + self.nuc_r0, 0)
+            new_actin_pos = (self.actin_pos[0,0] - self.actin_dist, 0)
             self.actin_pos = jnp.concatenate((jnp.array(new_actin_pos, dtype=jnp.float64)[None, :], self.actin_pos), axis=0)
             self.actin_vel = jnp.concatenate((self.actin_vel[[0], :], self.actin_vel), axis=0)
             self.num_actins += 1
-            self.num_singline_actions += 1
+            self.num_singline_actins += 1
         # forces on membrane
         relative_pos = PairRelativePositions(self.agent_positions, self.actin_pos) # shape: (num_lipids, num_actins, 2)
         distance_mat = PairDistanceMatrix(self.agent_positions, self.actin_pos)[:, :, None] # shape: (num_lipids, num_actins, 1)

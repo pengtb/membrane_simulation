@@ -36,4 +36,9 @@ def load_radius(N=1000, all=True, num_neighbor=1, string=True, k=None, eps=None,
         radius_file += f'_neighbor{num_neighbor}'
     
     radius_file += '.npy'
-    return np.load(os.path.join(radius_dir, radius_file))
+    radius_file_path = os.path.join(radius_dir, radius_file)
+    if os.path.exists(radius_file_path):
+        return np.load(radius_file_path)
+    else:
+        print('radius file not found')
+        return 0.375 / 2
