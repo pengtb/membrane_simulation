@@ -222,3 +222,31 @@ def ClipMovement(movement, max_move=0.05):
     """
     norm = jnp.linalg.norm(movement, axis=-1, keepdims=True)
     return movement / (norm + 1e-10) * jnp.minimum(norm, max_move)
+
+@jit
+def ClipTimeStep(vel, acc, mov, max_move=1e-4):
+    """
+    Lower timestep to prevent movement on x/y larger than max_move
+    velocities: (2)
+    acceleration: (2)
+    vt + 0.5 * at^2 = max_move
+    """
+    vx, vy = vel
+    ax, ay = acc
+    mx, my = mov
+    tx1 = (-vx + jnp.sqrt(vx**2 + 2*ax*max_move*jnp.sign(mx))) / (ax + 1e-10)
+    tx2 = (-vx - jnp.sqrt(vx**2 + 2*ax*max_move*jnp.sign(mx))) / (ax + 1e-10)
+    tx = jnp.maximum(tx1, tx2)
+    ty1 = (-vy + jnp.sqrt(vy**2 + 2*ay*max_move*jnp.sign(my))) / (ay + 1e-10)
+    ty2 = (-vy - jnp.sqrt(vy**2 + 2*ay*max_move*jnp.sign(my))) / (ay + 1e-10)
+    ty = jnp.maximum(ty1, ty2)
+    return jnp.minimum(tx, ty)
+
+@jit
+def SizeVector(vectors):
+    """
+    vectors: (num_lipids, 2)
+    sizes: (num_lipids,)
+    """
+    return jnp.linalg.norm(vectors, axis=-1)
+    
