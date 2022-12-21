@@ -8,7 +8,7 @@ def DistanceMatrix(positions):
 
 @jit
 def PairDistanceMatrix(positions1, positions2):
-    return jnp.linalg.norm(positions1[:, None, :] - positions2[None, :, :], axis=-1)
+    return jnp.linalg.norm(positions2[:, None, :] - positions1[None, :, :], axis=-1)
 
 @jit
 def RelativePositions(positions):
@@ -17,7 +17,7 @@ def RelativePositions(positions):
 
 @jit
 def PairRelativePositions(positions1, positions2):
-    related_positions = positions1[:, None, :] - positions2[None, :, :]
+    related_positions = positions2[:, None, :] - positions1[None, :, :]
     return related_positions
 
 @jit
@@ -37,8 +37,7 @@ def RepulsiveForce(relative_positions, neighborhood, distances, k=1, power=1, r0
     return force * neighborhood
 
 @jit
-def StringForce(relative_positions, neighborhood, distances, k=1, r0=1):
-    d0 = 2 * r0
+def StringForce(relative_positions, neighborhood, distances, k=1, d0=1):
     magnitude =  jnp.abs(k * (distances - d0))
     direction = jnp.nan_to_num(relative_positions / distances, copy=False)
     force = magnitude * direction
@@ -224,7 +223,7 @@ def ClipMovement(movement, max_move=0.05):
     return movement / (norm + 1e-10) * jnp.minimum(norm, max_move)
 
 @jit
-def ClipTimeStep(vel, acc, mov, max_move=1e-4):
+def ClipTimeStep(vel, acc, mov, max_move=1e-4, prev_dt=0.001, min_dt=1e-6):
     """
     Lower timestep to prevent movement on x/y larger than max_move
     velocities: (2)
@@ -234,12 +233,27 @@ def ClipTimeStep(vel, acc, mov, max_move=1e-4):
     vx, vy = vel
     ax, ay = acc
     mx, my = mov
-    tx1 = (-vx + jnp.sqrt(vx**2 + 2*ax*max_move*jnp.sign(mx))) / (ax + 1e-10)
-    tx2 = (-vx - jnp.sqrt(vx**2 + 2*ax*max_move*jnp.sign(mx))) / (ax + 1e-10)
-    tx = jnp.maximum(tx1, tx2)
-    ty1 = (-vy + jnp.sqrt(vy**2 + 2*ay*max_move*jnp.sign(my))) / (ay + 1e-10)
-    ty2 = (-vy - jnp.sqrt(vy**2 + 2*ay*max_move*jnp.sign(my))) / (ay + 1e-10)
-    ty = jnp.maximum(ty1, ty2)
+    vx_t = vx + ax * prev_dt
+    vy_t = vy + ay * prev_dt
+    # max velocity of x/y to get min dt
+    vx_max = jnp.maximum(jnp.abs(vx), jnp.abs(vx_t))
+    vy_max = jnp.maximum(jnp.abs(vy), jnp.abs(vy_t))
+    vmax = jnp.maximum(vx_max, vy_max)
+    clip_dt = max_move / vmax
+    return jnp.maximum(clip_dt, min_dt)
+
+def ClipTimeStepSimple(vel, acc, mov, max_move=1e-4):
+    """
+    Lower timestep to prevent movement on x/y larger than max_move
+    velocities: (2)
+    acceleration: (2)
+    vt + 0.5 * at^2 = max_move
+    """
+    vx, vy = vel
+    ax, ay = acc
+    mx, my = mov
+    tx = jnp.sqrt(2*max_move / (jnp.abs(ax) + 1e-10))
+    ty = jnp.sqrt(2*max_move / (jnp.abs(ay) + 1e-10))
     return jnp.minimum(tx, ty)
 
 @jit

@@ -32,9 +32,11 @@ def initialize_shape_positions(N, init_shape, **kwargs):
         raise ValueError('Unknown init_shape')
     return positions
 
-def initialize_actin_positions(actin_r0, num_lines=6, nuc_r0=25.8, cell_r0=59.68):
+def initialize_actin_positions(actin_r0, num_lines=6, nuc_r0=25.8, cell_r0=59.68, match_end=False):
     # actin positions on one line
     sing_actin_pos_x = np.arange(nuc_r0, cell_r0, actin_r0*2)
+    if match_end:
+        sing_actin_pos_x = sing_actin_pos_x + cell_r0 - sing_actin_pos_x[-1]
     sing_actin_pos_y = np.zeros_like(sing_actin_pos_x)
     sing_actin_pos = np.stack([sing_actin_pos_x, sing_actin_pos_y], axis=1)
     # angle to rotate
@@ -352,10 +354,13 @@ class Membrane_jax(mesa.Model):
             movement_size = SizeVector(movement)
             if (movement_size > vlim * self.dt).any():
                 maxmove_idx = jnp.argmax(movement_size, axis=0)
-                clip_dt = ClipTimeStep(self.velocities[maxmove_idx], acceleration[maxmove_idx], movement[maxmove_idx], vlim*self.dt)
+                clip_dt = ClipTimeStep(self.velocities[maxmove_idx], acceleration[maxmove_idx], movement[maxmove_idx], vlim*self.dt, self.dt, kwargs.get('min_dt', 1e-16))
                 print('Movement too large, clip timestep to: ', clip_dt)
                 nextstep_velocities = self.velocities + acceleration * clip_dt
                 movement = (self.velocities + nextstep_velocities) / 2 * clip_dt
+                self.clip_dt = clip_dt
+            else:
+                self.clip_dt = self.dt
         self.agent_positions = self.agent_positions + movement
         self.velocities = nextstep_velocities
         # update other status
@@ -420,7 +425,7 @@ class Membrane_jax(mesa.Model):
             repl_force = RepulsiveForce(relative_positions, string_neighbors, distance_matrixs, k=self.k2, r0=self.r0, power=self.power).sum(axis=0)
             other_forces += repl_force
         if self.k is not None:
-            string_force = StringForce(relative_positions, string_neighbors, distance_matrixs, k=self.k, r0=self.r0).sum(axis=0)
+            string_force = StringForce(relative_positions, string_neighbors, distance_matrixs, k=self.k, d0=self.r0*2).sum(axis=0)
             other_forces += string_force
         # vdW force
         if self.epsilon is not None:
@@ -709,7 +714,11 @@ class Cytoskeleton(Membrane_jax):
         self.actin_dist = self.actin_r0 * 2 if kwargs.get('actin_dist', None) is None else kwargs.get('actin_dist')
         
         self.nuc_r0 = kwargs.get('nuc_r0', np.power(0.08, 1/3) * 59.68)
-        self.actin_pos = jnp.asarray(initialize_actin_positions(self.actin_r0, num_lines, self.nuc_r0, cell_r0=kwargs.get('cell_r0', 59.68)))
+        actin_pos = jnp.asarray(initialize_actin_positions(self.actin_r0, num_lines, self.nuc_r0, cell_r0=kwargs.get('cell_r0', 59.68)))
+        other_actin_pos = actin_pos[len(actin_pos)//num_lines:, :]
+        sing_actin_pos = jnp.asarray(initialize_actin_positions(self.actin_r0, 1, self.nuc_r0, cell_r0=kwargs.get('sing_cell_r0', 59), match_end=True))
+        self.actin_pos = jnp.concatenate((sing_actin_pos, other_actin_pos), axis=0)
+        
         self.num_actins = num_actins if num_actins is not None else len(self.actin_pos)
         self.num_singline_actins = self.num_actins // num_lines
         
@@ -725,7 +734,20 @@ class Cytoskeleton(Membrane_jax):
                                                           agent_reporters=agent_reporter, 
                                                           jump_step=self.jump_step)
         self.actin_datacollector.collect(self)
-        
+    
+    def update_cytoskeleton_force(self, agent_positions, actin_pos, **kwargs):
+        relative_pos = PairRelativePositions(agent_positions, actin_pos) # shape: (num_actins, num_lipids, 2)
+        distance_mat = PairDistanceMatrix(agent_positions, actin_pos)[:, :, None] # shape: (num_actins, num_lipids, 1)
+        neighborhood_mat = jnp.ones_like(distance_mat, dtype=jnp.float64) # shape: (num_actins, num_lipids, 1)
+        add_force = vdWForce(relative_pos, neighborhood_mat, distance_mat, k=self.epsilon, d0=self.r0+self.actin_r0)
+        add_force = add_force.sum(axis=0) # shape: (num_lipids, 2)
+        if kwargs.get('cyto_string', False):
+            d0 = self.r0+self.actin_r0
+            string_neighborhood_mat = jnp.where(distance_mat < d0, 1, 0) # shape: (num_actins, num_lipids, 1)
+            string_force = StringForce(relative_pos, string_neighborhood_mat, distance_mat, k=self.k, d0=d0).sum(axis=1) # shape: (num_lipids, 2)
+            add_force = add_force + string_force
+        return add_force
+    
     def step(self, **kwargs):
         # update actin velocity
         actin_vel = self.actin_vel
@@ -742,8 +764,13 @@ class Cytoskeleton(Membrane_jax):
                         actin_vel[:self.num_singline_actins,0] = self.actin_vel[0,0] + actin_vel_update
                         actin_vel = jnp.asarray(actin_vel)
                         print('Warming up actin velocity to {}'.format(self.actin_vel[0,0]))
+        # timestep
+        if hasattr(self, 'clip_dt'):
+            actin_dt = self.clip_dt
+        else:
+            actin_dt = self.dt
         # update actin positions
-        actin_pos = self.actin_pos + actin_vel * self.dt
+        actin_pos = self.actin_pos + actin_vel * actin_dt
         # add new actin if needed
         if actin_pos[0,0] - self.nuc_r0 > self.actin_dist:
             new_actin_pos = (actin_pos[0,0] - self.actin_dist, 0)
@@ -751,14 +778,8 @@ class Cytoskeleton(Membrane_jax):
             actin_vel = jnp.concatenate((self.actin_vel[[0], :], self.actin_vel), axis=0)
             
         # forces on membrane
-        prev_relative_pos = PairRelativePositions(self.agent_positions, self.actin_pos) # shape: (num_lipids, num_actins, 2)
-        prev_distance_mat = PairDistanceMatrix(self.agent_positions, self.actin_pos)[:, :, None] # shape: (num_lipids, num_actins, 1)
-        prev_neighborhood_mat = jnp.ones_like(prev_distance_mat, dtype=jnp.float64) # shape: (num_lipids, num_actins, 1)
-        prev_add_force = vdWForce(prev_relative_pos, prev_neighborhood_mat, prev_distance_mat, k=self.epsilon, d0=self.r0+self.actin_r0).sum(axis=1) # shape: (num_lipids, 2)
-        relative_pos = PairRelativePositions(self.agent_positions, actin_pos) # shape: (num_lipids, num_actins, 2)
-        distance_mat = PairDistanceMatrix(self.agent_positions, actin_pos)[:, :, None] # shape: (num_lipids, num_actins, 1)
-        neighborhood_mat = jnp.ones_like(distance_mat, dtype=jnp.float64) # shape: (num_lipids, num_actins, 1)
-        add_force = vdWForce(relative_pos, neighborhood_mat, distance_mat, k=self.epsilon, d0=self.r0+self.actin_r0).sum(axis=1) # shape: (num_lipids, 2)
+        prev_add_force = self.update_cytoskeleton_force(self.agent_positions, self.actin_pos, **kwargs)
+        add_force = self.update_cytoskeleton_force(self.agent_positions, actin_pos, **kwargs)
         # force limit: actin not move when forces are too large
         force_lim = kwargs.get('force_lim', None)
         if force_lim is not None:

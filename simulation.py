@@ -54,7 +54,10 @@ def main():
     parser.add_argument('--actin_vel', type=float, default=0.1, help="Actin velocity")
     parser.add_argument('--num_lines', type=int, default=6, help="Number of lines")
     parser.add_argument('--cell_r0', type=float, default=59.68, help="Cell radius")
+    parser.add_argument('--sing_cell_r0', type=float, default=57, help="Cell radius")
     parser.add_argument('--force_lim', type=float, default=None, help="Limit for actin force on lipids")
+    parser.add_argument('--min_dt', type=float, default=1e-16, help="Minimum dt for actin simulation")
+    parser.add_argument('--cyto_string', action='store_true', help="Cytoskeleton & lipid connected with string when close")
     
     # arguments
     args = parser.parse_args()
@@ -95,7 +98,10 @@ def main():
     actin_vel_update = args.actin_vel_update
     num_lines = args.num_lines
     cell_r0 = args.cell_r0
+    sing_cell_r0 = args.sing_cell_r0
     force_lim = args.force_lim
+    min_dt = args.min_dt
+    cyto_string = args.cyto_string
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -113,7 +119,8 @@ def main():
                     jump_step=save_freq, dt=dt, init_shape='polygon', distance=0.375, 
                     all_neighbor=all_neighbor, num_neighbor=num_neighbor, string=string,
                     angle_penalty=angle_penalty, simple=simple, prob=prob,
-                    actin_r0=actin_r0, actin_vel=actin_vel, cell_r0=cell_r0, max_actin_vel=max_actin_vel)
+                    actin_r0=actin_r0, actin_vel=actin_vel, cell_r0=cell_r0, sing_cell_r0=sing_cell_r0,
+                    max_actin_vel=max_actin_vel)
 
     # simulation
     num_lipids = model.N + total_num_add_lipids
@@ -129,7 +136,8 @@ def main():
                         update_neighbor=update_neighbor, 
                         neighbor_distance_cutoff=neighbor_threshold,
                         constant_velocity=constant_velocity, vmin=vmin, vlim=vlim,
-                        actin_vel_update=actin_vel_update, force_lim=force_lim)
+                        actin_vel_update=actin_vel_update, force_lim=force_lim, min_dt=min_dt,
+                        cyto_string=cyto_string)
         
         if i % save_freq == 0:
             tqdm.write("Steps = {}, Time: {}".format(i, datetime.now(tzinfo)))
@@ -138,10 +146,11 @@ def main():
             cooldown_count -= 1
         if cooldown_count == 0:
             if model.N < num_lipids:
-                if model.membrane_growth(max_added_perstep=max_added_perstep,
-                                        distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap):
-                    tqdm.write(f"Current number of lipids: {model.N}")
-                    cooldown_count = add_cooldown_steps
+                if (with_cytoskeleton & (model.actin_pos[0,0] >= 57.68)) or (not with_cytoskeleton):
+                    if model.membrane_growth(max_added_perstep=max_added_perstep,
+                                            distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap):
+                        tqdm.write(f"Current number of lipids: {model.N}")
+                        cooldown_count = add_cooldown_steps
 
     # visualization
     total = model.schedule.steps
