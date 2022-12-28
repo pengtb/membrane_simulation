@@ -307,6 +307,7 @@ class Membrane_jax(mesa.Model):
             model_reporters['center_y'] = lambda m: m.center[1]
         if self.update_r_mcc:
             model_reporters['r_mcc'] = 'r_mcc'
+        model_reporters['dt'] = lambda m: m.clip_dt if hasattr(m, 'clip_dt') else m.dt
         
         agent_reporters = {}
         agent_reporters['pos_x'] = lambda m: m.agent_positions[:,0]
@@ -355,9 +356,10 @@ class Membrane_jax(mesa.Model):
             if (movement_size > vlim * self.dt).any():
                 maxmove_idx = jnp.argmax(movement_size, axis=0)
                 clip_dt = ClipTimeStep(self.velocities[maxmove_idx], acceleration[maxmove_idx], movement[maxmove_idx], vlim*self.dt, self.dt, kwargs.get('min_dt', 1e-16))
-                print('Movement too large, clip timestep to: ', clip_dt)
                 nextstep_velocities = self.velocities + acceleration * clip_dt
                 movement = (self.velocities + nextstep_velocities) / 2 * clip_dt
+                # movement_size = SizeVector(movement)
+                # print('Movement too large, clip movement to: ', movement_size.max())
                 self.clip_dt = clip_dt
             else:
                 self.clip_dt = self.dt
@@ -720,7 +722,7 @@ class Cytoskeleton(Membrane_jax):
         self.actin_pos = jnp.concatenate((sing_actin_pos, other_actin_pos), axis=0)
         
         self.num_actins = num_actins if num_actins is not None else len(self.actin_pos)
-        self.num_singline_actins = self.num_actins // num_lines
+        self.num_singline_actins = len(sing_actin_pos)
         
         self.actin_vel = np.zeros((self.num_actins, 2), dtype=np.float64)
         self.actin_vel[:self.num_singline_actins,0] = kwargs.get('actin_vel', 1e-3)
@@ -755,10 +757,6 @@ class Cytoskeleton(Membrane_jax):
             if self.actin_vel[0,0] < self.max_actin_vel:
                 actin_vel_update = kwargs.get('actin_vel_update', None)
                 if actin_vel_update is not None:
-                    # vel_diff = self.actin_vel[0,0] - self.velocities[:,0].max()
-                    # terminal_dist = self.agent_positions[:,0].max() - self.actin_pos[0,0]
-                    # if terminal_dist > self.actin_vel[0,0] * self.dt:
-                    # if vel_diff <= actin_vel_update:
                     if self.velocities[:,0].max() >= self.actin_vel[0,0]:
                         actin_vel = np.zeros_like(self.actin_vel, dtype=np.float64)
                         actin_vel[:self.num_singline_actins,0] = self.actin_vel[0,0] + actin_vel_update

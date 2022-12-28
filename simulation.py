@@ -57,7 +57,7 @@ def main():
     parser.add_argument('--sing_cell_r0', type=float, default=57, help="Cell radius")
     parser.add_argument('--force_lim', type=float, default=None, help="Limit for actin force on lipids")
     parser.add_argument('--min_dt', type=float, default=1e-16, help="Minimum dt for actin simulation")
-    parser.add_argument('--cyto_string', action='store_true', help="Cytoskeleton & lipid connected with string when close")
+    parser.add_argument('--cyto_string', action='store_true', default=False, help="Cytoskeleton & lipid connected with string when close")
     
     # arguments
     args = parser.parse_args()
@@ -146,11 +146,10 @@ def main():
             cooldown_count -= 1
         if cooldown_count == 0:
             if model.N < num_lipids:
-                if (with_cytoskeleton & (model.actin_pos[0,0] >= 57.68)) or (not with_cytoskeleton):
-                    if model.membrane_growth(max_added_perstep=max_added_perstep,
-                                            distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap):
-                        tqdm.write(f"Current number of lipids: {model.N}")
-                        cooldown_count = add_cooldown_steps
+                if model.membrane_growth(max_added_perstep=max_added_perstep,
+                                        distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap):
+                    tqdm.write(f"Current number of lipids: {model.N}")
+                    cooldown_count = add_cooldown_steps
 
     # visualization
     total = model.schedule.steps
