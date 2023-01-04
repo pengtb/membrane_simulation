@@ -350,6 +350,7 @@ class Membrane_jax(mesa.Model):
             nextstep_velocities = ZeroLowestVelocity(nextstep_velocities, vmin)
         # update positions
         movement = (self.velocities + nextstep_velocities) / 2 * self.dt
+        # clip timestep according to movement
         vlim = kwargs.get('vlim', None)
         if vlim is not None:
             movement_size = SizeVector(movement)
@@ -751,57 +752,42 @@ class Cytoskeleton(Membrane_jax):
         return add_force
     
     def step(self, **kwargs):
-        # update actin velocity
-        actin_vel = self.actin_vel
-        if self.max_actin_vel is not None:
-            if self.actin_vel[0,0] < self.max_actin_vel:
-                actin_vel_update = kwargs.get('actin_vel_update', None)
-                if actin_vel_update is not None:
-                    if self.velocities[:,0].max() >= self.actin_vel[0,0]:
-                        actin_vel = np.zeros_like(self.actin_vel, dtype=np.float64)
-                        actin_vel[:self.num_singline_actins,0] = self.actin_vel[0,0] + actin_vel_update
-                        actin_vel = jnp.asarray(actin_vel)
-                        print('Warming up actin velocity to {}'.format(self.actin_vel[0,0]))
-        # timestep
-        if hasattr(self, 'clip_dt'):
-            actin_dt = self.clip_dt
-        else:
-            actin_dt = self.dt
-        # update actin positions
-        actin_pos = self.actin_pos + actin_vel * actin_dt
-        # add new actin if needed
-        if actin_pos[0,0] - self.nuc_r0 > self.actin_dist:
-            new_actin_pos = (actin_pos[0,0] - self.actin_dist, 0)
-            actin_pos = jnp.concatenate((jnp.array(new_actin_pos, dtype=jnp.float64)[None, :], actin_pos), axis=0)
-            actin_vel = jnp.concatenate((self.actin_vel[[0], :], self.actin_vel), axis=0)
-            
-        # forces on membrane
-        prev_add_force = self.update_cytoskeleton_force(self.agent_positions, self.actin_pos, **kwargs)
-        add_force = self.update_cytoskeleton_force(self.agent_positions, actin_pos, **kwargs)
-        # force limit: actin not move when forces are too large
-        force_lim = kwargs.get('force_lim', None)
-        if force_lim is not None:
-            maxforce = SizeVector(add_force).max()
-            if maxforce <= force_lim:
-                if len(actin_pos) > len(self.actin_pos):
-                    self.num_actins += 1
-                    self.num_singline_actins += 1
-                # if (len(actin_pos) > len(self.actin_pos)) or (self.velocities[:,0].max() >= self.actin_vel[0,0]):
-                self.actin_vel = actin_vel
-                self.actin_pos = actin_pos
-                # update membrane according to actin positions
-                super().step(additional_force=add_force, **kwargs)
+        if kwargs.get('update_actin', True):
+            # update actin velocity
+            actin_vel = self.actin_vel
+            if self.max_actin_vel is not None:
+                if self.actin_vel[0,0] < self.max_actin_vel:
+                    actin_vel_update = kwargs.get('actin_vel_update', None)
+                    if actin_vel_update is not None:
+                        if self.velocities[:,0].max() >= self.actin_vel[0,0]:
+                            actin_vel = np.zeros_like(self.actin_vel, dtype=np.float64)
+                            actin_vel[:self.num_singline_actins,0] = self.actin_vel[0,0] + actin_vel_update
+                            actin_vel = jnp.asarray(actin_vel)
+                            print('Warming up actin velocity to {}'.format(self.actin_vel[0,0]))
+            # timestep
+            if hasattr(self, 'clip_dt'):
+                actin_dt = self.clip_dt
             else:
-                print('Exceeding force limit: {}, waiting for lipids movement'.format(maxforce))
-                # update membrane according to actin positions
-                super().step(additional_force=prev_add_force, **kwargs)
-        else:
+                actin_dt = self.dt
+            # update actin positions
+            actin_pos = self.actin_pos + actin_vel * actin_dt
+            # add new actin if needed
+            if actin_pos[0,0] - self.nuc_r0 > self.actin_dist:
+                new_actin_pos = (actin_pos[0,0] - self.actin_dist, 0)
+                actin_pos = jnp.concatenate((jnp.array(new_actin_pos, dtype=jnp.float64)[None, :], actin_pos), axis=0)
+                actin_vel = jnp.concatenate((self.actin_vel[[0], :], self.actin_vel), axis=0)
+                
+            # forces on membrane
+            add_force = self.update_cytoskeleton_force(self.agent_positions, actin_pos, **kwargs)
+            # update actin status
             if len(actin_pos) > len(self.actin_pos):
                 self.num_actins += 1
                 self.num_singline_actins += 1
             self.actin_pos = actin_pos
             self.actin_vel = actin_vel
-            # update membrane according to actin positions
-            super().step(additional_force=add_force, **kwargs)
+        else:
+            add_force = self.update_cytoskeleton_force(self.agent_positions, self.actin_pos, **kwargs)
+        # update membrane according to actin positions
+        super().step(additional_force=add_force, **kwargs)
         # report pos of actins
         self.actin_datacollector.collect(self)
