@@ -58,6 +58,8 @@ def main():
     parser.add_argument('--min_dt', type=float, default=1e-16, help="Minimum dt for actin simulation")
     parser.add_argument('--cyto_string', action='store_true', default=False, help="Cytoskeleton & lipid connected with string when close")
     parser.add_argument('--relax_steps', type=int, default=1, help="Number of steps for relaxation after actin movement")
+    # model
+    parser.add_argument('--save_model', action='store_true', help="Save model")
     # arguments
     args = parser.parse_args()
     N = args.n
@@ -164,6 +166,8 @@ def main():
     combine_fig.write_json(os.path.join(output_dir, "simulation.json"))
     summary.to_csv(os.path.join(output_dir, "summary.tsv"), sep='\t', index=False)
     ratios.to_csv(os.path.join(output_dir, "metrics.tsv"), sep='\t', index=False)
+    if args.save_model:
+        model.save_ckpt(os.path.join(output_dir, "model_ckpt.npz"))
 
 if __name__ == "__main__":
     main()

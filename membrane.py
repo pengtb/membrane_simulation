@@ -198,6 +198,9 @@ class Membrane(mesa.Model):
 # model with step method vectorized with jax
 class Membrane_jax(mesa.Model):
     def __init__(self, N, lipid=Lipid_simple, **kwargs):
+        # save params
+        self.params = kwargs
+        self.params['init_N'] = N
         # seed
         if kwargs.get('prob', True):
             self.seed = kwargs.get('seed', 0)
@@ -524,7 +527,29 @@ class Membrane_jax(mesa.Model):
             if self.angle_penalty is not None:
                 self.init_angles = CalcIncludedAngle(EdgeVectors(self.agent_positions))
             return self.N
-            
+
+    def save_ckpt(self, filename):
+        """save model to file"""
+        positions = self.agent_positions
+        velocities = self.velocities
+        params = self.params
+        jnp.savez(filename, positions=positions, velocities=velocities, params=params)
+
+    @classmethod
+    def load_fromckpt(cls, filename):
+        """load model from checkpoint file"""
+        # load ckpt
+        data = jnp.load(filename, allow_pickle=True)
+        positions = data['positions']
+        velocities = data['velocities']
+        params = data['params'][None][0]
+        # create model
+        num_lipids = positions.shape[0]
+        model = cls(N=num_lipids, **params)
+        model.agent_positions = positions
+        model.velocities = velocities
+        return model
+
 # model with step method vectorized 
 class Membrane_vec(mesa.Model):
     def __init__(self, N, lipid=Lipid_simple, **kwargs):
@@ -791,3 +816,38 @@ class Cytoskeleton(Membrane_jax):
         super().step(additional_force=add_force, **kwargs)
         # report pos of actins
         self.actin_datacollector.collect(self)
+
+    def save_ckpt(self, filename):
+        """save model to file"""
+        # lipids ckpt
+        positions = self.agent_positions
+        velocities = self.velocities
+        params = self.params
+        # actins ckpt
+        actin_positions = self.actin_pos
+        actin_velocities = self.actin_vel
+        params['num_actins'] = self.num_actins
+        params['num_singline_actins'] = self.num_singline_actins
+        # save ckpt
+        jnp.savez(filename, positions=positions, velocities=velocities, params=params, actin_positions=actin_positions, actin_velocities=actin_velocities)
+        
+    @classmethod
+    def load_fromckpt(cls, filename):
+        """load model from checkpoint file"""
+        # load ckpt
+        data = jnp.load(filename, allow_pickle=True)
+        positions = data['positions']
+        velocities = data['velocities']
+        params = data['params'][None][0]
+        actin_positions = data['actin_positions']
+        actin_velocities = data['actin_velocities']
+        # create model
+        num_lipids = positions.shape[0]
+        model = cls(num_lipids=num_lipids, **params)
+        model.agent_positions = positions
+        model.velocities = velocities
+        model.actin_pos = actin_positions
+        model.actin_vel = actin_velocities
+        model.num_actins = params['num_actins']
+        model.num_singline_actins = params['num_singline_actins']
+        return model

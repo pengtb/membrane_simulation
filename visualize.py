@@ -5,11 +5,11 @@ import numpy as np
 from copy import deepcopy
 from membrane import Membrane_jax
 
-def scatter_animation(model=None, annotate_velocity=False, annotate_force=False, annotate_molecule=False, speed=50, subset=None, prev=None, table=None, **kwargs):
+def scatter_animation(model=None, annotate_velocity=False, annotate_force=False, annotate_molecule=False, speed=50, subset=None, prev=None, table=None, withinit=True, **kwargs):
     if model is not None:
-        simulations = model.datacollector.get_agent_vars_dataframe()
+        simulations = model.datacollector.get_agent_vars_dataframe(withinit=withinit)
         if annotate_molecule:
-            actin_simulations = model.actin_datacollector.get_agent_vars_dataframe().rename(columns={'actin_pos_x':'pos_x', 'actin_pos_y':'pos_y'})
+            actin_simulations = model.actin_datacollector.get_agent_vars_dataframe(withinit=withinit).rename(columns={'actin_pos_x':'pos_x', 'actin_pos_y':'pos_y'})
             actin_simulations.loc[:, 'molecule'] = 'actin'
             simulations.loc[:, 'molecule'] = 'lipid'
             actin_simulations.loc[:, 'size'] = float(model.actin_r0)
@@ -89,8 +89,8 @@ def annotate_velocity(fig, simulations):
                                                                 showarrow=True)]
     return fig
 
-def metric_bar_animation(model, speed=50, subset=None):
-    metrics = model.datacollector.get_model_vars_dataframe().drop(columns=['center_x','center_y'])
+def metric_bar_animation(model, speed=50, subset=None, withinit=True):
+    metrics = model.datacollector.get_model_vars_dataframe(withinit).drop(columns=['center_x','center_y'])
     # fold changes of metrics
     ratio = (metrics / metrics.loc[0]).stack().reset_index()
     ratio.columns = ['Step', 'Metric', 'Ratio']
@@ -113,14 +113,14 @@ def metric_bar_animation(model, speed=50, subset=None):
 
     return fig, ratio
 
-def metric_scatter_animation(model=None, speed=50, subset=None, prev=None, table=None):
+def metric_scatter_animation(model=None, speed=50, subset=None, prev=None, table=None, withinit=True):
     
     if model is not None:
-        metrics = model.datacollector.get_model_vars_dataframe().drop(columns=['center_x','center_y'])
+        metrics = model.datacollector.get_model_vars_dataframe(withinit).drop(columns=['center_x','center_y'])
         # add current status
         metrics.loc[len(metrics)*model.jump_step] = [getattr(model, attr) for attr in metrics.columns]
         # fold changes of metrics
-        ratio = (metrics / metrics.loc[0]).stack().reset_index()
+        ratio = (metrics / metrics.iloc[0]).stack().reset_index()
         ratio.columns = ['Step', 'Metric', 'Ratio']
         ratio = ratio.applymap(lambda v: np.asarray(v))
         # add log10 of ratios

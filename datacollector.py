@@ -87,7 +87,7 @@ class JumpModelDataCollector(DataCollector):
                        agent_records.append(self._reporter_decorator(reporter))
                 self.all_agents_records.append(np.stack(agent_records, axis=-1))
                 
-    def get_model_vars_dataframe(self):
+    def get_model_vars_dataframe(self, withinit=True):
         """Create a pandas DataFrame from the model variables.
 
         The DataFrame has one column for each model variable, and the index is
@@ -95,6 +95,8 @@ class JumpModelDataCollector(DataCollector):
 
         """
         model_vars_table = pd.DataFrame(self.model_vars)
+        if not withinit:
+            model_vars_table = model_vars_table.iloc[1:]
         model_vars_table.index = model_vars_table.index * self.jump_step
         return model_vars_table
 
@@ -110,7 +112,8 @@ class JumpModelDataCollector(DataCollector):
         steps = np.arange(begin, self.model.schedule.steps+self.jump_step, self.jump_step)
         # records 
         tables = []
-        for step, record in zip(steps, self.all_agents_records):
+        all_agents_records = self.all_agents_records if withinit else self.all_agents_records[1:]
+        for step, record in zip(steps, all_agents_records):
             table = pd.DataFrame(record, columns=self.agent_reporters.keys())
             table.loc[:, 'Step'] = step
             tables.append(table)
