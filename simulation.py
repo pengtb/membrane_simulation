@@ -42,7 +42,7 @@ def main():
     parser.add_argument('--total_num_add_lipids', type=int, default=0, help="Total number of lipids to add")
     parser.add_argument('--add_dist_threshold', type=float, default=None, help="Distance threshold for adding lipids")
     parser.add_argument('--max_added_perstep', type=int, default=None, help="Maximum number of lipids to add perstep")
-    parser.add_argument('--add_cooldown_steps', type=int, default=None, help="Number of steps for cooldown after adding new lipids")
+    parser.add_argument('--add_cooldown_steps', type=float, default=None, help="Number of steps for cooldown after adding new lipids")
     parser.add_argument('--power', type=int, default=2, help="Power of the force")
     parser.add_argument('--prob', action='store_true', help="Probability of adding lipids")
     parser.add_argument('--no_overlap', action='store_true', help="No overlap when adding lipids")
@@ -58,6 +58,7 @@ def main():
     parser.add_argument('--min_dt', type=float, default=1e-16, help="Minimum dt for actin simulation")
     parser.add_argument('--cyto_string', action='store_true', default=False, help="Cytoskeleton & lipid connected with string when close")
     parser.add_argument('--relax_steps', type=int, default=1, help="Number of steps for relaxation after actin movement")
+    parser.add_argument('--actin_distance_threshold', type=float, default=None, help="Distance threshold to actions for adding lipids")
     # model
     parser.add_argument('--save_model', action='store_true', help="Save model")
     # arguments
@@ -87,7 +88,7 @@ def main():
     max_added_perstep = args.max_added_perstep
     power = args.power
     simple = False if add_dist_threshold is not None else True
-    add_cooldown_steps = args.add_cooldown_steps if args.add_cooldown_steps is not None else 0
+    add_cooldown_steps = int(args.add_cooldown_steps) if args.add_cooldown_steps is not None else 0
     prob = args.prob
     no_overlap = args.no_overlap
     
@@ -103,6 +104,7 @@ def main():
     min_dt = args.min_dt
     cyto_string = args.cyto_string
     relax_steps = args.relax_steps
+    actin_distance_threshold = args.actin_distance_threshold
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -149,7 +151,8 @@ def main():
         if cooldown_count == 0:
             if model.N < num_lipids:
                 if model.membrane_growth(max_added_perstep=max_added_perstep,
-                                        distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap):
+                                        distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap, 
+                                        actin_distance_threshold=actin_distance_threshold):
                     tqdm.write(f"Current number of lipids: {model.N}")
                     cooldown_count = add_cooldown_steps
                     tqdm.write(f"Cooling down for steps: {cooldown_count}")

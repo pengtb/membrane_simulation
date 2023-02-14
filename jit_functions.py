@@ -197,10 +197,10 @@ def NooverlappNewLipidPos(edge_vecs, edge_lens, d=0.375):
     """
     # rotate angle
     cos_angle = edge_lens / 2 / d # (N,)
+    # cos_angle = - edge_lens / 2 / d # (N,)
     sin_angle = jnp.sqrt(1 - cos_angle**2) # (N,)
     # rotate direction vector by angle
     rotation_matrix = jnp.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]]).transpose(2,0,1) # (N, 2, 2)
-    # rotation_matrix = jnp.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]]).transpose(2,1,0) # (N, 2, 2)
     new_edge_vecs = jnp.einsum('ijk,ik->ij', rotation_matrix, edge_vecs) # (N, 2)
     # adjust the length to d
     new_edge_vecs = new_edge_vecs / cos_angle
