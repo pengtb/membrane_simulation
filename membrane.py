@@ -526,7 +526,13 @@ class Membrane_jax(mesa.Model):
             add_lipids_pos = self.agent_positions[add_pos_idxs] + 0.5 * new_pos_vectors
             self.agent_positions = jnp.insert(self.agent_positions, add_pos_idxs+1, add_lipids_pos, axis=0)
             # add new velocities
-            add_lipids_vel = self.velocities[add_pos_idxs] + 0.5 * EdgeVectors(self.velocities)[add_pos_idxs]
+            if kwargs.get('zero_added_vel', None):
+                add_lipids_vel = jnp.zeros_like(self.velocities[add_pos_idxs])
+            elif kwargs.get('zero_added_vel_y', None):
+                add_lipids_vel = jnp.stack([self.velocities[add_pos_idxs][:,0], jnp.zeros_like(self.velocities[add_pos_idxs][:,1])], axis=1)
+            else:
+                add_lipids_vel = self.velocities[add_pos_idxs] + 0.5 * EdgeVectors(self.velocities)[add_pos_idxs]
+                
             self.velocities = jnp.insert(self.velocities, add_pos_idxs+1, add_lipids_vel, axis=0)
             # update string neighborhood
             self.string_neighborhood = neighborhood_matrix(self.N, 1)
@@ -866,14 +872,32 @@ class Cytoskeleton(Membrane_jax):
     
     def membrane_growth(self, **kwargs):
         # distances between lipids and actins
-        actinlipid_distance_matrix = PairDistanceMatrix(self.agent_positions, self.actin_pos) # shape: (num_actins, num_lipids)        
+        # actinlipid_distance_matrix = PairDistanceMatrix(self.agent_positions, self.actin_pos) # shape: (num_actins, num_lipids)
         # only lipids close to actins can grow
-        actin_distance_threshold = kwargs.get('actin_distance_threshold', None) 
+        actin_distance_threshold = kwargs.get('actin_distance_threshold', None)
+        min_actin_distance_threshold = kwargs.get('min_actin_distance_threshold', None)
+        addtional_filters = []
         if actin_distance_threshold is not None:
-            # lipids' closest distances to actins
-            closest_distances = actinlipid_distance_matrix.min(axis=0) # shape: (num_lipids)
+            # lipids dist to actins or lipids' y positions
+            lipid_y_pos = self.agent_positions[:,1]
+            # edge center y positions
+            edgecenter_y_pos = (lipid_y_pos + jnp.roll(lipid_y_pos, -1)) / 2
+            # filter of new lipids that are close to actins
+            lipid_close_filter = jnp.abs(edgecenter_y_pos) <= actin_distance_threshold
+            addtional_filters.append(lipid_close_filter)
+        if min_actin_distance_threshold is not None:
+            # lipids dist to actins or lipids' y positions
+            lipid_y_pos = self.agent_positions[:,1]
+            # edge center y positions
+            edgecenter_y_pos = (lipid_y_pos + jnp.roll(lipid_y_pos, -1)) / 2
             # filter of lipids that are close to actins
-            lipid_close_filter = closest_distances <= actin_distance_threshold
-            # filter of edges
-            edge_filter = jnp.roll(lipid_close_filter, -1) + lipid_close_filter
-        return super().membrane_growth(additional_filter=edge_filter, **kwargs)
+            lipid_close_filter = jnp.abs(edgecenter_y_pos) >= min_actin_distance_threshold
+            addtional_filters.append(lipid_close_filter)
+        if len(addtional_filters) > 0:
+            if len(addtional_filters) > 1:
+                edge_filter = jnp.logical_and(*addtional_filters)
+            else:
+                edge_filter = addtional_filters[0]
+            return super().membrane_growth(additional_filter=edge_filter, **kwargs)
+        else:
+            return super().membrane_growth(additional_filter=None, **kwargs)

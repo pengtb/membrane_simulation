@@ -39,6 +39,7 @@ def main():
     parser.add_argument('--vlim', type=float, default=None, help='Velocity threshold')
     parser.add_argument('--string', action='store_true', help="Lipid connnected with string")
     parser.add_argument('--angle_penalty', type=float, default=None, help="Angle penalty")
+    # adding lipids
     parser.add_argument('--total_num_add_lipids', type=int, default=0, help="Total number of lipids to add")
     parser.add_argument('--add_dist_threshold', type=float, default=None, help="Distance threshold for adding lipids")
     parser.add_argument('--max_added_perstep', type=int, default=None, help="Maximum number of lipids to add perstep")
@@ -46,6 +47,9 @@ def main():
     parser.add_argument('--power', type=int, default=2, help="Power of the force")
     parser.add_argument('--prob', action='store_true', help="Probability of adding lipids")
     parser.add_argument('--no_overlap', action='store_true', help="No overlap when adding lipids")
+    parser.add_argument('--zero_added_vel', action='store_true', help="Zero added velocity")
+    parser.add_argument('--zero_added_vel_y', action='store_true', help="Zero added y velocity")
+    parser.add_argument('--start_adding_steps', type=float, default=0, help="Steps to start adding lipids")
     # actin
     parser.add_argument('--cytoskeleton', action='store_true', help="Cytoskeleton simulation")
     parser.add_argument('--num_actins', type=int, default=None, help="Number of actins")
@@ -59,6 +63,7 @@ def main():
     parser.add_argument('--cyto_string', action='store_true', default=False, help="Cytoskeleton & lipid connected with string when close")
     parser.add_argument('--relax_steps', type=int, default=1, help="Number of steps for relaxation after actin movement")
     parser.add_argument('--actin_distance_threshold', type=float, default=None, help="Distance threshold to actions for adding lipids")
+    parser.add_argument('--min_actin_distance_threshold', type=float, default=None, help="Distance threshold to actions for adding lipids")
     # model
     parser.add_argument('--save_model', action='store_true', help="Save model")
     # arguments
@@ -91,6 +96,8 @@ def main():
     add_cooldown_steps = int(args.add_cooldown_steps) if args.add_cooldown_steps is not None else 0
     prob = args.prob
     no_overlap = args.no_overlap
+    zero_added_vel = args.zero_added_vel
+    zero_added_vel_y = args.zero_added_vel_y
     
     with_cytoskeleton = args.cytoskeleton
     num_actins = args.num_actins
@@ -105,6 +112,7 @@ def main():
     cyto_string = args.cyto_string
     relax_steps = args.relax_steps
     actin_distance_threshold = args.actin_distance_threshold
+    min_actin_distance_threshold = args.min_actin_distance_threshold
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -149,10 +157,12 @@ def main():
         if cooldown_count > 0:
             cooldown_count -= 1
         if cooldown_count == 0:
-            if model.N < num_lipids:
+            if (model.N < num_lipids) & (i >= args.start_adding_steps):
                 if model.membrane_growth(max_added_perstep=max_added_perstep,
-                                        distance_threshold=add_dist_threshold, power=power, no_overlap=no_overlap, 
-                                        actin_distance_threshold=actin_distance_threshold):
+                                        distance_threshold=add_dist_threshold,
+                                        power=power, no_overlap=no_overlap, 
+                                        actin_distance_threshold=actin_distance_threshold, min_actin_distance_threshold=min_actin_distance_threshold,
+                                        zero_added_vel=zero_added_vel, zero_added_vel_y=zero_added_vel_y):
                     tqdm.write(f"Current number of lipids: {model.N}")
                     cooldown_count = add_cooldown_steps
                     tqdm.write(f"Cooling down for steps: {cooldown_count}")
