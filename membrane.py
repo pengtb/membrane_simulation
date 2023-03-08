@@ -873,7 +873,7 @@ class Cytoskeleton(Membrane_jax):
     def membrane_growth(self, **kwargs):
         # distances between lipids and actins
         # actinlipid_distance_matrix = PairDistanceMatrix(self.agent_positions, self.actin_pos) # shape: (num_actins, num_lipids)
-        # only lipids close to actins can grow
+        # only lipids close/remote to actins can grow
         actin_distance_threshold = kwargs.get('actin_distance_threshold', None)
         min_actin_distance_threshold = kwargs.get('min_actin_distance_threshold', None)
         addtional_filters = []
@@ -893,9 +893,16 @@ class Cytoskeleton(Membrane_jax):
             # filter of lipids that are close to actins
             lipid_close_filter = jnp.abs(edgecenter_y_pos) >= min_actin_distance_threshold
             addtional_filters.append(lipid_close_filter)
+        # only lipids on the vertex can grow
+        grow_lipid_range_size = kwargs.get('grow_lipid_range_size', None)
+        if grow_lipid_range_size is not None:
+            # init filter
+            lipid_range_filter = (jnp.arange(self.N) < grow_lipid_range_size) | (jnp.arange(self.N) >= self.N - grow_lipid_range_size)
+            addtional_filters.append(lipid_range_filter)
+        # combine filters
         if len(addtional_filters) > 0:
             if len(addtional_filters) > 1:
-                edge_filter = jnp.logical_and(*addtional_filters)
+                edge_filter = jnp.stack(addtional_filters).all(axis=0)
             else:
                 edge_filter = addtional_filters[0]
             return super().membrane_growth(additional_filter=edge_filter, **kwargs)

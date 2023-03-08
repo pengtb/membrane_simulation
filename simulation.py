@@ -50,6 +50,7 @@ def main():
     parser.add_argument('--zero_added_vel', action='store_true', help="Zero added velocity")
     parser.add_argument('--zero_added_vel_y', action='store_true', help="Zero added y velocity")
     parser.add_argument('--start_adding_steps', type=float, default=0, help="Steps to start adding lipids")
+    parser.add_argument('--grow_lipid_range_size', type=int, default=None, help="Grow lipid range size")
     # actin
     parser.add_argument('--cytoskeleton', action='store_true', help="Cytoskeleton simulation")
     parser.add_argument('--num_actins', type=int, default=None, help="Number of actins")
@@ -98,6 +99,7 @@ def main():
     no_overlap = args.no_overlap
     zero_added_vel = args.zero_added_vel
     zero_added_vel_y = args.zero_added_vel_y
+    grow_lipid_range_size = args.grow_lipid_range_size
     
     with_cytoskeleton = args.cytoskeleton
     num_actins = args.num_actins
@@ -162,7 +164,8 @@ def main():
                                         distance_threshold=add_dist_threshold,
                                         power=power, no_overlap=no_overlap, 
                                         actin_distance_threshold=actin_distance_threshold, min_actin_distance_threshold=min_actin_distance_threshold,
-                                        zero_added_vel=zero_added_vel, zero_added_vel_y=zero_added_vel_y):
+                                        zero_added_vel=zero_added_vel, zero_added_vel_y=zero_added_vel_y,
+                                        grow_lipid_range_size=grow_lipid_range_size):
                     tqdm.write(f"Current number of lipids: {model.N}")
                     cooldown_count = add_cooldown_steps
                     tqdm.write(f"Cooling down for steps: {cooldown_count}")
