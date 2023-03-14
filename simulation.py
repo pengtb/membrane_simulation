@@ -173,7 +173,7 @@ def main():
     # visualization
     total = model.schedule.steps
     jump = int(total / vis_frames)
-    fig, summary = scatter_animation(model=model, annotate_velocity=not with_cytoskeleton, annotate_molecule=with_cytoskeleton, speed=100, subset=np.arange(0,total,jump), prev=None, axis_range=70)
+    fig, summary = scatter_animation(model=model, annotate_molecule=with_cytoskeleton, speed=100, subset=np.arange(0,total,jump), prev=None, axis_range=70)
     metric_fig, ratios = metric_scatter_animation(model=model, speed=100, subset=np.arange(0,total,jump), prev=None)
     combine_fig = combine_metric_scatter(fig, metric_fig, annotate_molecule=with_cytoskeleton)
 

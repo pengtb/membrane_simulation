@@ -1,11 +1,12 @@
 import plotly.express as px
+from plotly.express.colors import sample_colorscale
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from copy import deepcopy
 from membrane import Membrane_jax
 
-def scatter_animation(model=None, annotate_velocity=False, annotate_force=False, annotate_molecule=False, speed=50, subset=None, prev=None, table=None, withinit=True, **kwargs):
+def scatter_animation(model=None, annotate_molecule=False, speed=50, subset=None, prev=None, table=None, withinit=True, **kwargs):
     if model is not None:
         simulations = model.datacollector.get_agent_vars_dataframe(withinit=withinit)
         if annotate_molecule:
@@ -17,34 +18,10 @@ def scatter_animation(model=None, annotate_velocity=False, annotate_force=False,
             simulations = pd.concat([simulations, actin_simulations])
     else:
         simulations = table
-    # if (prev is None) & (model is not None):
-    #     # add initial positions to dataframe
-    #     init_status = pd.DataFrame(model.init_pos, columns=['pos_x', 'pos_y'])
-    #     init_status.loc[:, 'Step'] = 0 
-    #     init_status.loc[:, 'AgentID'] = np.arange(len(init_status))
-    #     if annotate_molecule:
-    #         init_status.loc[:, 'molecule'] = 'lipid'
-    #     simulations.reset_index(inplace=True)
-    #     simulations = pd.concat([init_status, simulations], sort=True)
-    #     simulations.fillna(0, inplace=True)
+        
     if 'Step' not in simulations.columns:
         simulations.reset_index(inplace=True)
-    # size of markers by force
-    if not annotate_force:
-        if 'size' not in simulations.columns:
-            size = float(model.r0)
-            # size = 0.375
-            simulations.loc[:, 'size'] = size
-        size = 'size'
-    else:
-        simulations.loc[:, 'f'] = np.sqrt(simulations['fx']**2 + simulations['fy']**2)
-        size = 'f'
-    # color of markers by velosity
-    if not annotate_velocity:
-        color = None
-    else:
-        simulations.loc[:, 'log10v'] = np.log10(np.sqrt(simulations['vx']**2 + simulations['vy']**2) + 1)
-        color = 'log10v'
+    
     # color of markers by type of molecule
     if not annotate_molecule:
         color = None
@@ -58,20 +35,55 @@ def scatter_animation(model=None, annotate_velocity=False, annotate_force=False,
     # subset of frames
     if subset is not None:
         simulations = simulations.loc[simulations['Step'].isin(subset)]
+        
+    # marker indicating lipid velocity size & direction
+    lipid_subset = simulations.loc[simulations['molecule'] == 'lipid']
+    lipid_vels = np.nan_to_num(lipid_subset.loc[: , ['vx', 'vy']].values)
+    lipid_angles = 90 - (np.nan_to_num(np.arctan2(lipid_vels[:,1], lipid_vels[:,0])) / np.pi * 180)
+    lipid_vsizes = np.nan_to_num(np.linalg.norm(lipid_vels, axis=1))
+    # for each frame
+    frame_steps = lipid_subset.drop_duplicates('Step').Step.values
+    frame_lipid_angles = [lipid_angles[(lipid_subset['Step'] == step).values] for step in frame_steps]
+    frame_lipid_vsize = [lipid_vsizes[(lipid_subset['Step'] == step).values] for step in frame_steps]
+    max_line_width = 2
+    frame_line_widths = [np.nan_to_num((lipid_vsize - lipid_vsize.min()) / (lipid_vsize.max() - lipid_vsize.min())) * max_line_width for lipid_vsize in frame_lipid_vsize]
 
     # visualize
     xpos_colname = kwargs.get('xpos_colname', 'pos_x')
     ypos_colname = kwargs.get('ypos_colname', 'pos_y')
     fig = px.scatter(simulations, x=xpos_colname, y=ypos_colname, 
             animation_frame='Step', animation_group='AgentID', 
-            hover_name='AgentID', width=900, height=900, size=size, size_max=10, color=color, range_color=[0, 3])
-    # fig.show()
+            hover_name='AgentID', width=950, height=900, 
+            size='size', size_max=15, 
+            color=color, range_color=[0, 3],
+            range_x=[30,110])
+    # mark lipid velocity for figure
+    symbol = 'triangle-up'
+    fig.update_traces(
+        selector=dict(name='lipid'),
+        marker=dict(symbol=symbol, angle=frame_lipid_angles[0],
+                    line=dict(width=frame_line_widths[0], color='DarkSlateGrey')))
+    # mark lipid velocity for frames
+    for i in range(len(frame_steps)):
+        fig.frames[i].data[0].update(marker=dict(symbol=symbol, angle=frame_lipid_angles[i],),
+                                     line=dict(color='DarkSlateGrey'))
+        fig.frames[i].data[0].marker['line']['width'] = frame_line_widths[i]
+    # color new lipids
+    agents_iterations = model.agents_iterations if model is not None else kwargs.get('agents_iterations', None)
+    if agents_iterations is not None:
+        num_interval_colors = kwargs.get('num_interval_colors', 20)
+        interval_frame_size = kwargs.get('interval_frame_size', 1)
+        fig = color_new_lipids(fig, model.agents_iterations, 
+                               num_interval_colors=num_interval_colors, 
+                               interval_frame_size=interval_frame_size)
+    
     # speed
     fig.layout.updatemenus[0]['buttons'][0]['args'][1]['frame']['duration'] = speed
 
     # axis range
-    axis_range = kwargs.get('axis_range', 14)
-    _ = fig.update_xaxes(dict(range=(-axis_range, axis_range), autorange=False))
+    axis_range = kwargs.get('axis_range', 70)
+    x_axist_start = kwargs.get('x_axist_start', 0)
+    _ = fig.update_xaxes(dict(range=(x_axist_start, x_axist_start+axis_range*2), autorange=False))
     _ = fig.update_yaxes(dict(range=(-axis_range, axis_range), autorange=False))
 
     return fig, simulations
@@ -88,6 +100,44 @@ def annotate_velocity(fig, simulations):
                                                                 ay=status['pos_y'].values+status['vy'].values, 
                                                                 showarrow=True)]
     return fig
+
+def color_new_lipids(fig, agents_iterations, num_interval_colors=10, interval_frame_size=1):
+    """_summary_
+
+    Args:
+        fig (plotly.graph_objs._figure.Figure): plotly figure
+        agents_iterations (np.array(N,)): iterations of each agent/lipid
+        num_interval_colors (int, optional): gradual colors for new lipids. Defaults to 10.
+        interval_frame_size (int, optional): interval for new lipids to change ot next color. Defaults to 1.
+    """
+    # frames when adding new lipids
+    agents_iterations = np.array(agents_iterations)
+    num_steps = agents_iterations.max()
+    num_frames = len(fig.frames)
+    frame_iterval = num_steps // num_frames
+    appear_frames = num_frames - np.array(agents_iterations) // frame_iterval 
+    addlipid_frames = np.sort(np.unique(appear_frames[appear_frames > 0]))
+    # colors for new lipids
+    colors = sample_colorscale(['rgb(103,0,31)','#636efa'], samplepoints=np.linspace(0,1,num_interval_colors))
+    colors = [color.replace(' ','') for color in colors]
+    # for each frame with new lipids, color new lipids
+    for frame in addlipid_frames:
+        # new lipids to color
+        frame_newlipids_mask = (appear_frames == frame)
+        # frames to change color
+        color_frames = frame + np.arange(num_interval_colors) * interval_frame_size
+        # color new lipids
+        for color_frame, color in zip(color_frames, colors):
+            if color_frame >= num_frames:
+                break
+            agents_colors = fig.frames[color_frame].data[0].marker['color']
+            if isinstance(agents_colors, str):
+                agents_colors = np.array([agents_colors] * len(agents_iterations), dtype='<U15')
+            elif isinstance(agents_colors, np.ndarray):
+                agents_colors = np.copy(agents_colors)
+            agents_colors[frame_newlipids_mask] = [color] * frame_newlipids_mask.sum()
+            fig.frames[color_frame].data[0].marker['color'] = agents_colors
+    return fig    
 
 def metric_bar_animation(model, speed=50, subset=None, withinit=True):
     metrics = model.datacollector.get_model_vars_dataframe(withinit).drop(columns=['center_x','center_y'])

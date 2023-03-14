@@ -297,6 +297,7 @@ class Membrane_jax(mesa.Model):
         # initialize other agents status
         self.velocities = jnp.zeros((self.N, 2), dtype=jnp.float64)
         self.forces = jnp.zeros((self.N, 2), dtype=jnp.float64)
+        self.agents_iterations = jnp.zeros(self.N, dtype=jnp.int32)
 
         # model reporters
         model_reporters = {}
@@ -328,8 +329,9 @@ class Membrane_jax(mesa.Model):
         self.datacollector.collect(self)
         
     def step(self, **kwargs):
-        self.schedule.step(**kwargs)
         # run a step
+        self.schedule.step(**kwargs)
+        self.agents_iterations += 1
         # update neighborhood
         self.update_neighborhood(**kwargs)
         # update forces
@@ -534,6 +536,8 @@ class Membrane_jax(mesa.Model):
                 add_lipids_vel = self.velocities[add_pos_idxs] + 0.5 * EdgeVectors(self.velocities)[add_pos_idxs]
                 
             self.velocities = jnp.insert(self.velocities, add_pos_idxs+1, add_lipids_vel, axis=0)
+            # update agents iterations
+            self.agents_iterations = jnp.insert(self.agents_iterations, add_pos_idxs+1, jnp.zeros(num_add_lipids, dtype=jnp.int32), axis=0)
             # update string neighborhood
             self.string_neighborhood = neighborhood_matrix(self.N, 1)
             self.agent_neighborhood = neighborhood_matrix(self.N, self.num_neighbor)
@@ -551,7 +555,8 @@ class Membrane_jax(mesa.Model):
         positions = self.agent_positions
         velocities = self.velocities
         params = self.params
-        jnp.savez(filename, positions=positions, velocities=velocities, params=params)
+        iterations = self.agents_iterations
+        jnp.savez(filename, positions=positions, velocities=velocities, params=params, iterations=iterations)
 
     @classmethod
     def load_fromckpt(cls, filename):
@@ -561,11 +566,13 @@ class Membrane_jax(mesa.Model):
         positions = data['positions']
         velocities = data['velocities']
         params = data['params'][None][0]
+        iterations = data['iterations']
         # create model
         num_lipids = positions.shape[0]
         model = cls(N=num_lipids, **params)
         model.agent_positions = positions
         model.velocities = velocities
+        model.agents_iterations = iterations
         return model
 
 # model with step method vectorized 
@@ -841,13 +848,15 @@ class Cytoskeleton(Membrane_jax):
         positions = self.agent_positions
         velocities = self.velocities
         params = self.params
+        iterations = self.agents_iterations
         # actins ckpt
         actin_positions = self.actin_pos
         actin_velocities = self.actin_vel
         params['num_actins'] = self.num_actins
         params['num_singline_actins'] = self.num_singline_actins
         # save ckpt
-        jnp.savez(filename, positions=positions, velocities=velocities, params=params, actin_positions=actin_positions, actin_velocities=actin_velocities)
+        jnp.savez(filename, positions=positions, velocities=velocities, params=params, iterations=iterations,
+                  actin_positions=actin_positions, actin_velocities=actin_velocities)
         
     @classmethod
     def load_fromckpt(cls, filename):
@@ -857,6 +866,7 @@ class Cytoskeleton(Membrane_jax):
         positions = data['positions']
         velocities = data['velocities']
         params = data['params'][None][0]
+        iterations = data['iterations']
         actin_positions = data['actin_positions']
         actin_velocities = data['actin_velocities']
         # create model
@@ -864,6 +874,7 @@ class Cytoskeleton(Membrane_jax):
         model = cls(num_lipids=num_lipids, **params)
         model.agent_positions = positions
         model.velocities = velocities
+        model.agents_iterations = iterations
         model.actin_pos = actin_positions
         model.actin_vel = actin_velocities
         model.num_actins = params['num_actins']
