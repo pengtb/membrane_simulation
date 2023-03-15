@@ -73,7 +73,7 @@ def scatter_animation(model=None, annotate_molecule=False, speed=50, subset=None
     if agents_iterations is not None:
         num_interval_colors = kwargs.get('num_interval_colors', 20)
         interval_frame_size = kwargs.get('interval_frame_size', 1)
-        fig = color_new_lipids(fig, model.agents_iterations, 
+        fig = color_new_lipids(fig, agents_iterations, 
                                num_interval_colors=num_interval_colors, 
                                interval_frame_size=interval_frame_size)
     
@@ -130,12 +130,13 @@ def color_new_lipids(fig, agents_iterations, num_interval_colors=10, interval_fr
         for color_frame, color in zip(color_frames, colors):
             if color_frame >= num_frames:
                 break
+            current_newlipid_mask = frame_newlipids_mask[appear_frames<=color_frame]
             agents_colors = fig.frames[color_frame].data[0].marker['color']
             if isinstance(agents_colors, str):
-                agents_colors = np.array([agents_colors] * len(agents_iterations), dtype='<U15')
+                agents_colors = np.array([agents_colors] * len(current_newlipid_mask), dtype='<U15')
             elif isinstance(agents_colors, np.ndarray):
                 agents_colors = np.copy(agents_colors)
-            agents_colors[frame_newlipids_mask] = [color] * frame_newlipids_mask.sum()
+            agents_colors[current_newlipid_mask] = [color] * current_newlipid_mask.sum()
             fig.frames[color_frame].data[0].marker['color'] = agents_colors
     return fig    
 
