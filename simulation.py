@@ -63,6 +63,7 @@ def main():
     parser.add_argument('--min_dt', type=float, default=1e-16, help="Minimum dt for actin simulation")
     parser.add_argument('--cyto_string', action='store_true', default=False, help="Cytoskeleton & lipid connected with string when close")
     parser.add_argument('--relax_steps', type=int, default=1, help="Number of steps for relaxation after actin movement")
+    parser.add_argument('--update_total_steps', action='store_true', default=False, help="Update total steps when using relax steps")
     parser.add_argument('--actin_distance_threshold', type=float, default=None, help="Distance threshold to actions for adding lipids")
     parser.add_argument('--min_actin_distance_threshold', type=float, default=None, help="Distance threshold to actions for adding lipids")
     # model
@@ -75,7 +76,7 @@ def main():
     k = args.k if args.k > 0 else None
     eps = args.e if args.e > 0 else None
     dt = args.dt
-    t = args.t
+    t = args.t if not args.update_total_steps else args.t * args.relax_steps
     output_dir = args.o
     save_freq = args.s if args.s is not None else t // args.v
     vis_frames = args.v
