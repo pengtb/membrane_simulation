@@ -66,6 +66,7 @@ def main():
     parser.add_argument('--update_total_steps', action='store_true', default=False, help="Update total steps when using relax steps")
     parser.add_argument('--actin_distance_threshold', type=float, default=None, help="Distance threshold to actions for adding lipids")
     parser.add_argument('--min_actin_distance_threshold', type=float, default=None, help="Distance threshold to actions for adding lipids")
+    parser.add_argument('--max_cyto_force_threshold', type=float, default=None, help="Max cytoskeleton force threshold")
     # model
     parser.add_argument('--save_model', action='store_true', help="Save model")
     # arguments
@@ -116,6 +117,7 @@ def main():
     relax_steps = args.relax_steps
     actin_distance_threshold = args.actin_distance_threshold
     min_actin_distance_threshold = args.min_actin_distance_threshold
+    max_cyto_force_threshold = args.max_cyto_force_threshold
     # time
     timezone_offset = +8.0  # Pacific Standard Time (UTC−08:00)
     tzinfo = timezone(timedelta(hours=timezone_offset))
@@ -152,7 +154,8 @@ def main():
                         neighbor_distance_cutoff=neighbor_threshold,
                         constant_velocity=constant_velocity, vmin=vmin, vlim=vlim,
                         actin_vel_update=actin_vel_update, min_dt=min_dt,
-                        cyto_string=cyto_string, update_actin=update_actin)
+                        cyto_string=cyto_string, update_actin=update_actin,
+                        max_cyto_force_threshold=max_cyto_force_threshold)
         
         if i % save_freq == 0:
             tqdm.write("Steps = {}, Time: {}".format(i, datetime.now(tzinfo)))

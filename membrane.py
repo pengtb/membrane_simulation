@@ -783,7 +783,11 @@ class Cytoskeleton(Membrane_jax):
         agent_reporter = {}
         agent_reporter['actin_pos_x'] = lambda a: a.actin_pos[:,0]
         agent_reporter['actin_pos_y'] = lambda a: a.actin_pos[:,1]
+        model_reporter = {}
+        self.update_actin = True
+        model_reporter['update_actin'] = lambda a: a.update_actin
         self.actin_datacollector = JumpModelDataCollector(self, 
+                                                          model_reporters=model_reporter,
                                                           agent_reporters=agent_reporter, 
                                                           jump_step=self.jump_step)
         self.actin_datacollector.collect(self)
@@ -792,17 +796,17 @@ class Cytoskeleton(Membrane_jax):
         relative_pos = PairRelativePositions(agent_positions, actin_pos) # shape: (num_actins, num_lipids, 2)
         distance_mat = PairDistanceMatrix(agent_positions, actin_pos)[:, :, None] # shape: (num_actins, num_lipids, 1)
         neighborhood_mat = jnp.ones_like(distance_mat, dtype=jnp.float64) # shape: (num_actins, num_lipids, 1)
-        add_force = vdWForce(relative_pos, neighborhood_mat, distance_mat, k=self.epsilon, d0=self.r0+self.actin_r0)
-        add_force = add_force.sum(axis=0) # shape: (num_lipids, 2)
+        add_force = vdWForce(relative_pos, neighborhood_mat, distance_mat, k=self.epsilon, d0=self.r0+self.actin_r0) # shape: (num_actins, num_lipids, 2)
         if kwargs.get('cyto_string', False):
             d0 = self.r0+self.actin_r0
             string_neighborhood_mat = jnp.where(distance_mat < d0, 1, 0) # shape: (num_actins, num_lipids, 1)
-            string_force = StringForce(relative_pos, string_neighborhood_mat, distance_mat, k=self.k, d0=d0).sum(axis=1) # shape: (num_lipids, 2)
+            string_force = StringForce(relative_pos, string_neighborhood_mat, distance_mat, k=self.k, d0=d0).transpose(1,0,2) # shape: (num_actins, num_lipids, 2)
             add_force = add_force + string_force
         return add_force
     
     def step(self, **kwargs):
-        if kwargs.get('update_actin', True):
+        self.update_actin = kwargs.get('update_actin')
+        if self.update_actin:
             # update actin velocity
             actin_vel = self.actin_vel
             if self.max_actin_vel is not None:
@@ -829,7 +833,16 @@ class Cytoskeleton(Membrane_jax):
                 
             # forces on membrane
             add_force = self.update_cytoskeleton_force(self.agent_positions, actin_pos, **kwargs)
-            # update actin status
+            max_cyto_force_threshold = kwargs.get('max_cyto_force_threshold')
+            if max_cyto_force_threshold is not None:
+                vertex_actin_force = add_force.sum(1)
+                vertex_actin_force_size = jnp.linalg.norm(vertex_actin_force, axis=1)
+                max_vertex_actin_force_size = vertex_actin_force_size.max(0)
+                if max_vertex_actin_force_size > max_cyto_force_threshold:
+                    kwargs['update_actin'] = False
+                    self.step(**kwargs)
+                    return None
+            # update actin status if needed
             if len(actin_pos) > len(self.actin_pos):
                 self.num_actins += 1
                 self.num_singline_actins += 1
@@ -838,7 +851,7 @@ class Cytoskeleton(Membrane_jax):
         else:
             add_force = self.update_cytoskeleton_force(self.agent_positions, self.actin_pos, **kwargs)
         # update membrane according to actin positions
-        super().step(additional_force=add_force, **kwargs)
+        super().step(additional_force=add_force.sum(0), **kwargs)
         # report pos of actins
         self.actin_datacollector.collect(self)
 

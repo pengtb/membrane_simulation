@@ -47,6 +47,7 @@ def scatter_animation(model=None, annotate_molecule=False, speed=50, subset=None
     frame_lipid_vsize = [lipid_vsizes[(lipid_subset['Step'] == step).values] for step in frame_steps]
     max_line_width = 2
     frame_line_widths = [np.nan_to_num((lipid_vsize - lipid_vsize.min()) / (lipid_vsize.max() - lipid_vsize.min())) * max_line_width for lipid_vsize in frame_lipid_vsize]
+    simulations = simulations.loc[simulations['Step'].isin(frame_steps)]
 
     # visualize
     xpos_colname = kwargs.get('xpos_colname', 'pos_x')
@@ -66,7 +67,7 @@ def scatter_animation(model=None, annotate_molecule=False, speed=50, subset=None
     # mark lipid velocity for frames
     for i in range(len(frame_steps)):
         fig.frames[i].data[0].update(marker=dict(symbol=symbol, angle=frame_lipid_angles[i],),
-                                     line=dict(color='DarkSlateGrey'))
+                                    line=dict(color='DarkSlateGrey'))
         fig.frames[i].data[0].marker['line']['width'] = frame_line_widths[i]
     # color new lipids
     agents_iterations = model.agents_iterations if model is not None else kwargs.get('agents_iterations', None)
